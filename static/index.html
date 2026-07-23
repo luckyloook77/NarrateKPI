@@ -562,6 +562,24 @@
 </div>
 
 <script>
+// ── Unified API fetch helper ────────────────────────────────────────
+// Every fetch() call goes through this function so errors consistently
+// extract the backend ``detail`` string and throw a descriptive Error.
+async function apiFetch(url, options = {}) {
+  const res = await fetch(url, options);
+  if (res.ok) return res;
+  let detail = '';
+  try {
+    const err = await res.json();
+    detail = err.detail || JSON.stringify(err);
+  } catch (_) {
+    try { detail = await res.text(); } catch (_) { detail = ''; }
+  }
+  // Truncate long error bodies to keep toast readable.
+  const msg = detail ? detail.slice(0, 160) : '';
+  throw new Error('HTTP ' + res.status + (msg ? ': ' + msg : ''));
+}
+
 function reviewQueue() {
   return {
     // ── State ────────────────────────────────────────────────────
@@ -681,8 +699,7 @@ function reviewQueue() {
 
     async loadReports() {
       try {
-        const res = await fetch('/api/reports');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const res = await apiFetch('/api/reports');
         this.reports = await res.json();
         if (this.selectedId) {
           const stillExists = this.reports.find(r => r.id === this.selectedId);
@@ -699,12 +716,7 @@ function reviewQueue() {
     async generateAll() {
       this.loading = true;
       try {
-        const res = await fetch('/api/reports/generate-all', { method: 'POST' });
-        if (!res.ok) {
-          let detail = '';
-          try { const err = await res.json(); detail = err.detail || JSON.stringify(err); } catch(_) { detail = await res.text().catch(() => ''); }
-          throw new Error('HTTP ' + res.status + (detail ? ': ' + detail.slice(0, 120) : ''));
-        }
+        const res = await apiFetch('/api/reports/generate-all', { method: 'POST' });
         const data = await res.json();
         this.reports = data.reports;
         if (data.reports.length > 0) {
@@ -725,8 +737,7 @@ function reviewQueue() {
       this.selectedId = id;
       this.selectedReport = null; // Clear while loading
       try {
-        const res = await fetch('/api/reports/' + id);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const res = await apiFetch('/api/reports/' + id);
         const data = await res.json();
         this.selectedReport = data;
         this.editContent = data.markdown_content;
@@ -748,12 +759,11 @@ function reviewQueue() {
       const originalContent = this.selectedReport.markdown_content;
       this.selectedReport.markdown_content = this.editContent;
       try {
-        const res = await fetch('/api/reports/' + this.selectedReport.id, {
+        const res = await apiFetch('/api/reports/' + this.selectedReport.id, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ markdown_content: this.editContent }),
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
         const updated = await res.json();
         this.selectedReport.status = updated.status;
         this.selectedReport.updated_at = updated.updated_at;
@@ -775,12 +785,7 @@ function reviewQueue() {
       if (this.selectedReport.status === 'APPROVED' || this.selectedReport.status === 'SENT') return;
       if (this.dirty) await this.saveDraft();
       try {
-        const res = await fetch('/api/reports/' + this.selectedReport.id + '/approve', { method: 'POST' });
-        if (!res.ok) {
-          const err = await res.json();
-          this.showToast(err.detail || 'Failed to approve', 'error');
-          return;
-        }
+        const res = await apiFetch('/api/reports/' + this.selectedReport.id + '/approve', { method: 'POST' });
         const updated = await res.json();
         this.selectedReport.status = 'APPROVED';
         this.selectedReport.updated_at = updated.updated_at;
@@ -800,12 +805,7 @@ function reviewQueue() {
       // Auto-approve if not yet approved
       if (this.selectedReport.status !== 'APPROVED') {
         if (this.dirty) await this.saveDraft();
-        const res = await fetch('/api/reports/' + this.selectedReport.id + '/approve', { method: 'POST' });
-        if (!res.ok) {
-          const err = await res.json();
-          this.showToast(err.detail || 'Failed to approve', 'error');
-          return;
-        }
+        const res = await apiFetch('/api/reports/' + this.selectedReport.id + '/approve', { method: 'POST' });
         const updated = await res.json();
         this.selectedReport.status = 'APPROVED';
         this.selectedReport.updated_at = updated.updated_at;
@@ -839,16 +839,11 @@ function reviewQueue() {
           prev_conversions: parseInt(this.form.prevConversions) || 0,
           prev_revenue: parseFloat(this.form.prevRevenue) || 0,
         };
-        const res = await fetch('/api/clients/custom-report', {
+        const res = await apiFetch('/api/clients/custom-report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!res.ok) {
-          const err = await res.json();
-          this.showToast(err.detail || 'Failed to create report', 'error');
-          return;
-        }
         this.showCreateModal = false;
         // Reload reports and select the new one
         await this.loadReports();
@@ -870,12 +865,7 @@ function reviewQueue() {
       if (!this.selectedReport) return;
       this.sending = true;
       try {
-        const res = await fetch('/api/reports/' + this.selectedReport.id + '/send', { method: 'POST' });
-        if (!res.ok) {
-          const err = await res.json();
-          this.showToast(err.detail || 'Failed to send', 'error');
-          return;
-        }
+        const res = await apiFetch('/api/reports/' + this.selectedReport.id + '/send', { method: 'POST' });
         const data = await res.json();
         this.selectedReport.status = 'SENT';
         this.selectedReport.sent_at = data.sent_at;

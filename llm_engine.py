@@ -211,25 +211,32 @@ def generate_report(
 
     print(f"[NarrateKPI] 🤖 Calling {label} ({active_model})...")
 
-    if label == "gemini":
-        content = _call_gemini(
-            api_key=api_key,
-            model=active_model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
+    try:
+        if label == "gemini":
+            content = _call_gemini(
+                api_key=api_key,
+                model=active_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        else:
+            content = _call_openai_compatible(
+                api_key=api_key,
+                base_url=base_url,
+                model=active_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        print(f"[NarrateKPI] ✅ Report generated successfully.")
+        return content
+    except Exception as e:
+        print(
+            f"[NarrateKPI] ⚠️  LLM API call failed ({e}). "
+            f"Falling back to dry-run mock report to keep pipeline running.",
+            file=sys.stderr,
         )
-    else:
-        content = _call_openai_compatible(
-            api_key=api_key,
-            base_url=base_url,
-            model=active_model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-
-    print(f"[NarrateKPI] ✅ Report generated successfully.")
-    return content
+        return generate_mock_report(summary_raw_json)

@@ -16,7 +16,9 @@ POST   /api/reports/{id}/approve    — Approve report → sets APPROVED
 
 from __future__ import annotations
 
+import os
 import sys
+import traceback
 from pathlib import Path
 from typing import List, Optional
 
@@ -66,6 +68,16 @@ app.add_middleware(
 )
 
 _static_dir = HERE / "static"
+
+# ── Auto-create runtime data directories ─────────────────────────────
+_RUNTIME_DIRS = [
+    HERE / "data",
+    HERE / "reports_output",
+    HERE / "email_output",
+]
+for _dir in _RUNTIME_DIRS:
+    _dir.mkdir(parents=True, exist_ok=True)
+print(f"[NarrateKPI] 📁 Ensured {len(_RUNTIME_DIRS)} runtime directories exist")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -176,37 +188,41 @@ async def generate_all() -> GenerateAllResponse:
 
     Clears any existing reports and regenerates from scratch.
     """
-    clear_all()
-    created: List[ReportRecord] = []
+    try:
+        clear_all()
+        created: List[ReportRecord] = []
 
-    for case in ALL_CASES:
-        # ── Step 1: Math Engine ────────────────────────────────────
-        anomaly_report = run_math_engine(case)
-        summary = anomaly_report.summary_raw_json
+        for case in ALL_CASES:
+            # ── Step 1: Math Engine ────────────────────────────────
+            anomaly_report = run_math_engine(case)
+            summary = anomaly_report.summary_raw_json
 
-        # ── Step 2: LLM Synthesis (or dry-run mock) ────────────────
-        markdown = generate_report(summary)
+            # ── Step 2: LLM Synthesis (or dry-run mock) ────────────
+            markdown = generate_report(summary)
 
-        # ── Step 3: Persist ────────────────────────────────────────
-        record = ReportRecord(
-            account_id=summary.get("account_id", case.account_id),
-            client_name=summary.get("client_name", case.client_name),
-            period=summary.get("period_current", ""),
-            status=ReportStatus.DRAFT,
-            raw_metrics={
-                "current": summary.get("current_metrics", {}),
-                "previous": summary.get("previous_metrics", {}),
-            },
-            anomalies_found=summary.get("total_anomalies_found", 0),
-            markdown_content=markdown,
+            # ── Step 3: Persist ────────────────────────────────────
+            record = ReportRecord(
+                account_id=summary.get("account_id", case.account_id),
+                client_name=summary.get("client_name", case.client_name),
+                period=summary.get("period_current", ""),
+                status=ReportStatus.DRAFT,
+                raw_metrics={
+                    "current": summary.get("current_metrics", {}),
+                    "previous": summary.get("previous_metrics", {}),
+                },
+                anomalies_found=summary.get("total_anomalies_found", 0),
+                markdown_content=markdown,
+            )
+            save(record)
+            created.append(record)
+
+        return GenerateAllResponse(
+            generated=len(created),
+            reports=[_to_summary(r) for r in created],
         )
-        save(record)
-        created.append(record)
-
-    return GenerateAllResponse(
-        generated=len(created),
-        reports=[_to_summary(r) for r in created],
-    )
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ generate_all() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"generate_all: {e}")
 
 
 @app.get("/api/reports", response_model=List[ReportSummary])
@@ -214,22 +230,32 @@ async def list_reports(
     status: Optional[str] = Query(None, description="Filter by status (DRAFT, IN_REVIEW, APPROVED, SENT)"),
 ) -> List[ReportSummary]:
     """List all reports, optionally filtered by status."""
-    records = load_all()
-    if status:
-        status_upper = status.upper()
-        records = [r for r in records if r.status.value == status_upper]
-    # Most recent first.
-    records.sort(key=lambda r: r.updated_at, reverse=True)
-    return [_to_summary(r) for r in records]
+    try:
+        records = load_all()
+        if status:
+            status_upper = status.upper()
+            records = [r for r in records if r.status.value == status_upper]
+        # Most recent first.
+        records.sort(key=lambda r: r.updated_at, reverse=True)
+        return [_to_summary(r) for r in records]
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ list_reports() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"list_reports: {e}")
 
 
 @app.get("/api/reports/{report_id}", response_model=ReportDetail)
 async def get_report(report_id: str) -> ReportDetail:
     """Get a single report with full Markdown content and raw metrics."""
-    record = load_by_id(report_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return _to_detail(record)
+    try:
+        record = load_by_id(report_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return _to_detail(record)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ get_report() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"get_report: {e}")
 
 
 @app.put("/api/reports/{report_id}", response_model=ReportDetail)
@@ -239,20 +265,26 @@ async def update_report(report_id: str, body: UpdateReportRequest) -> ReportDeta
     Automatically transitions status to ``IN_REVIEW`` if it is currently
     ``DRAFT`` or ``IN_REVIEW``.
     """
-    record = load_by_id(report_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        record = load_by_id(report_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Report not found")
 
-    # Only DRAFT and IN_REVIEW reports can be edited; approved/sent are locked.
-    if record.status not in (ReportStatus.DRAFT, ReportStatus.IN_REVIEW):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot edit a report with status '{record.status.value}'. Only DRAFT and IN_REVIEW reports can be modified.",
-        )
-    record.markdown_content = body.markdown_content
-    record.status = ReportStatus.IN_REVIEW
-    save(record)
-    return _to_detail(record)
+        # Only DRAFT and IN_REVIEW reports can be edited; approved/sent are locked.
+        if record.status not in (ReportStatus.DRAFT, ReportStatus.IN_REVIEW):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot edit a report with status '{record.status.value}'. Only DRAFT and IN_REVIEW reports can be modified.",
+            )
+        record.markdown_content = body.markdown_content
+        record.status = ReportStatus.IN_REVIEW
+        save(record)
+        return _to_detail(record)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ update_report() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"update_report: {e}")
 
 
 @app.post("/api/reports/{report_id}/approve", response_model=ReportDetail)
@@ -261,17 +293,23 @@ async def approve_report(report_id: str) -> ReportDetail:
 
     Only ``DRAFT`` or ``IN_REVIEW`` reports can be approved.
     """
-    record = load_by_id(report_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Report not found")
-    if record.status in (ReportStatus.APPROVED, ReportStatus.SENT):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot approve a report with status '{record.status.value}'",
-        )
-    record.status = ReportStatus.APPROVED
-    save(record)
-    return _to_detail(record)
+    try:
+        record = load_by_id(report_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Report not found")
+        if record.status in (ReportStatus.APPROVED, ReportStatus.SENT):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot approve a report with status '{record.status.value}'",
+            )
+        record.status = ReportStatus.APPROVED
+        save(record)
+        return _to_detail(record)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ approve_report() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"approve_report: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -288,52 +326,57 @@ async def create_custom_report(body: CustomReportRequest) -> ReportDetail:
     ROAS) and detects anomalies.  The LLM Synthesis engine generates the
     narrative report.
     """
-    current = MetricSet(
-        impressions=body.impressions,
-        clicks=body.clicks,
-        spend=body.spend,
-        conversions=body.conversions,
-        revenue=body.revenue,
-    )
-    previous = MetricSet(
-        impressions=body.prev_impressions,
-        clicks=body.prev_clicks,
-        spend=body.prev_spend,
-        conversions=body.prev_conversions,
-        revenue=body.prev_revenue,
-    )
+    try:
+        current = MetricSet(
+            impressions=body.impressions,
+            clicks=body.clicks,
+            spend=body.spend,
+            conversions=body.conversions,
+            revenue=body.revenue,
+        )
+        previous = MetricSet(
+            impressions=body.prev_impressions,
+            clicks=body.prev_clicks,
+            spend=body.prev_spend,
+            conversions=body.prev_conversions,
+            revenue=body.prev_revenue,
+        )
 
-    comparison = WeeklyComparisonInput(            account_id=f"custom_{uuid.uuid4().hex[:6]}",
-        client_name=body.client_name,
-        period_current=body.period,
-        period_previous=_derive_previous_period(body.period),
-        current_metrics=current,
-        previous_metrics=previous,
-    )
+        comparison = WeeklyComparisonInput(
+            account_id=f"custom_{uuid.uuid4().hex[:6]}",
+            client_name=body.client_name,
+            period_current=body.period,
+            period_previous=_derive_previous_period(body.period),
+            current_metrics=current,
+            previous_metrics=previous,
+        )
 
-    # ── Step 1: Math Engine ────────────────────────────────────────
-    anomaly_report = run_math_engine(comparison)
-    summary = anomaly_report.summary_raw_json
+        # ── Step 1: Math Engine ────────────────────────────────────
+        anomaly_report = run_math_engine(comparison)
+        summary = anomaly_report.summary_raw_json
 
-    # ── Step 2: LLM Synthesis ──────────────────────────────────────
-    markdown = generate_report(summary)
+        # ── Step 2: LLM Synthesis ──────────────────────────────────
+        markdown = generate_report(summary)
 
-    # ── Step 3: Persist ────────────────────────────────────────────
-    record = ReportRecord(
-        account_id=comparison.account_id,
-        client_name=body.client_name,
-        period=body.period,
-        status=ReportStatus.DRAFT,
-        raw_metrics={
-            "current": summary.get("current_metrics", {}),
-            "previous": summary.get("previous_metrics", {}),
-        },
-        anomalies_found=summary.get("total_anomalies_found", 0),
-        markdown_content=markdown,
-        target_email=body.target_email,
-    )
-    save(record)
-    return _to_detail(record)
+        # ── Step 3: Persist ────────────────────────────────────────
+        record = ReportRecord(
+            account_id=comparison.account_id,
+            client_name=body.client_name,
+            period=body.period,
+            status=ReportStatus.DRAFT,
+            raw_metrics={
+                "current": summary.get("current_metrics", {}),
+                "previous": summary.get("previous_metrics", {}),
+            },
+            anomalies_found=summary.get("total_anomalies_found", 0),
+            markdown_content=markdown,
+            target_email=body.target_email,
+        )
+        save(record)
+        return _to_detail(record)
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ create_custom_report() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"create_custom_report: {e}")
 
 
 @app.post("/api/reports/{report_id}/send", response_model=SendReportResponse)
@@ -344,35 +387,41 @@ async def send_report(report_id: str) -> SendReportResponse:
     the Resend API (or dry-run logging if no API key is configured).
     Only ``APPROVED`` reports can be sent.
     """
-    record = load_by_id(report_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        record = load_by_id(report_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Report not found")
 
-    if record.status != ReportStatus.APPROVED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot send a report with status '{record.status.value}'. Only APPROVED reports can be sent.",
+        if record.status != ReportStatus.APPROVED:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot send a report with status '{record.status.value}'. Only APPROVED reports can be sent.",
+            )
+
+        target = record.target_email or "client@example.com"
+        subject = f"Weekly Performance Report — {record.client_name} ({record.period})"
+        success = send_report_email(
+            to_email=target,
+            subject=subject,
+            markdown_content=record.markdown_content,
         )
 
-    target = record.target_email or "client@example.com"
-    subject = f"Weekly Performance Report — {record.client_name} ({record.period})"
-    success = send_report_email(
-        to_email=target,
-        subject=subject,
-        markdown_content=record.markdown_content,
-    )
+        now = _now_iso()
+        record.status = ReportStatus.SENT
+        record.sent_at = now
+        save(record)
 
-    now = _now_iso()
-    record.status = ReportStatus.SENT
-    record.sent_at = now
-    save(record)
-
-    return SendReportResponse(
-        id=record.report_id,
-        status=record.status.value,
-        sent_at=now,
-        sent_to=target,
-    )
+        return SendReportResponse(
+            id=record.report_id,
+            status=record.status.value,
+            sent_at=now,
+            sent_to=target,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[NarrateKPI] ❌ send_report() failed:\n{traceback.format_exc()}", flush=True)
+        raise HTTPException(status_code=500, detail=f"send_report: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────
