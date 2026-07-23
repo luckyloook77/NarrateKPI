@@ -41,4 +41,9 @@ RUN mkdir -p /data && chmod 755 /data
 
 EXPOSE 8000
 
+# ── Health check: pings /api/health every 30s using built-in Python ──
+#     (curl is not available on python:3.11-slim)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
+
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import List, Optional
@@ -57,6 +58,9 @@ app = FastAPI(
     version="3.0.0",
     redirect_slashes=True,
 )
+
+# Track server start time for uptime reporting
+_START_TIME = time.time()
 
 # ── CORS: same-origin SPA doesn't need it, but Render's proxy may
 #     require headers for asset preflight checks.
@@ -157,6 +161,66 @@ class SendReportResponse(BaseModel):
 # ──────────────────────────────────────────────────────────────────────
 #  Routes
 # ──────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/health")
+async def health_check() -> dict:
+    """Health-check endpoint for monitoring and Docker HEALTHCHECK.
+
+    Returns app version, uptime, store path, runtime directories, and
+    the status of optional LLM / Email providers so operators can
+    quickly assess the instance's capabilities.
+    """
+    from storage import STORE_PATH
+    import email_service as es
+    import llm_engine as llm
+
+    uptime = time.time() - _START_TIME
+
+    # Check runtime directories
+    dirs_status = {}
+    for _dir in _RUNTIME_DIRS:
+        dirs_status[str(_dir.name)] = {
+            "exists": _dir.is_dir(),
+            "writable": os.access(str(_dir), os.W_OK) if _dir.is_dir() else False,
+        }
+
+    # Check store writability
+    store_path = STORE_PATH
+    store_parent = Path(store_path).parent
+    store_writable = store_parent.is_dir() and os.access(str(store_parent), os.W_OK)
+
+    # Detect LLM provider
+    provider = llm.detect_provider()
+    llm_status = "dry_run"
+    llm_detail = "No API key configured — reports generated in dry-run mode"
+    if provider:
+        llm_status = "live"
+        llm_detail = f"{provider[0]} ({provider[2]})"
+
+    # Email provider
+    email_status = "dry_run"
+    email_detail = "RESEND_API_KEY not set — emails logged to disk"
+    if es.RESEND_API_KEY:
+        email_status = "live"
+        email_detail = f"Resend ({es.DEFAULT_FROM_EMAIL})"
+
+    return {
+        "status": "ok",
+        "version": "3.0.0",
+        "uptime_seconds": round(uptime, 1),
+        "uptime_human": _format_uptime(uptime),
+        "store": {
+            "path": store_path,
+            "writable": store_writable,
+        },
+        "directories": dirs_status,
+        "providers": {
+            "llm": {"status": llm_status, "detail": llm_detail},
+            "email": {"status": email_status, "detail": email_detail},
+        },
+    }
+
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root() -> str:
@@ -437,6 +501,25 @@ if _static_dir.is_dir():
 # ──────────────────────────────────────────────────────────────────────
 
 import uuid  # noqa: E402 (import after endpoints for readability)
+
+
+def _format_uptime(seconds: float) -> str:
+    """Format a duration in seconds to a human-readable string.
+
+    Examples:
+        ``_format_uptime(45)`` → ``"45s"``
+        ``_format_uptime(125)`` → ``"2m 5s"``
+        ``_format_uptime(3661)`` → ``"1h 1m 1s"``
+    """
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
 
 
 def _derive_previous_period(current: str) -> str:
