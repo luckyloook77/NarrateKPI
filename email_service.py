@@ -2,10 +2,15 @@
 NarrateKPI — Email Dispatch Engine (Module 4)
 
 Converts Markdown reports to email-safe HTML with inlined CSS suitable for
-Gmail/Outlook, then dispatches via the Resend API (https://resend.com).
+Gmail/Outlook, then dispatches via the Resend API.
 
-Dry-run fallback: when ``RESEND_API_KEY`` is not set, renders the HTML locally
-and logs it to the console instead of making an HTTP call.
+Delivery chain (tried in order):
+  1. ``resend`` Python SDK (if installed)
+  2. ``httpx`` direct HTTP call to ``https://api.resend.com/emails``
+  3. Dry-run — logs the email to ``./email_output/`` and prints to console
+
+When ``RESEND_API_KEY`` is not set, the engine always falls to dry-run mode
+without making any network calls.
 """
 
 from __future__ import annotations
@@ -24,7 +29,15 @@ logger = logging.getLogger("narratekpi.email")
 # ──────────────────────────────────────────────────────────────────────
 
 RESEND_API_KEY: Optional[str] = os.environ.get("RESEND_API_KEY")
-DEFAULT_FROM_EMAIL: str = os.environ.get("DEFAULT_FROM_EMAIL", "reports@narratekpi.com")
+
+# Support both FROM_EMAIL (shorter) and DEFAULT_FROM_EMAIL (legacy).
+# FROM_EMAIL takes precedence.
+DEFAULT_FROM_EMAIL: str = (
+    os.environ.get("FROM_EMAIL")
+    or os.environ.get("DEFAULT_FROM_EMAIL")
+    or "reports@narratekpi.com"
+)
+
 RESEND_API_URL: str = "https://api.resend.com/emails"
 
 
@@ -195,8 +208,93 @@ def _basic_markdown_to_html(text: str) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  Resend API dispatch
+#  Resend SDK dispatch
 # ──────────────────────────────────────────────────────────────────────
+
+
+def _send_via_resend_sdk(
+    api_key: str,
+    from_email: str,
+    to_email: str,
+    subject: str,
+    html_body: str,
+) -> bool:
+    """Send email via the official ``resend`` Python SDK.
+
+    Falls back to ``httpx`` if the SDK is not installed.
+    """
+    try:
+        import resend
+    except ImportError:
+        logger.info(
+            "[NarrateKPI] ⚠️  resend SDK not installed — falling back to httpx. "
+            "Install it with: pip install resend"
+        )
+        return _send_via_httpx(api_key, from_email, to_email, subject, html_body)
+
+    resend.api_key = api_key
+
+    params = {
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+
+    try:
+        response = resend.Emails.send(params)
+        email_id = getattr(response, "id", str(response)[:20])
+        logger.info("[NarrateKPI] ✅ Email sent via Resend SDK to %s — ID: %s", to_email, email_id)
+        return True
+    except Exception as exc:
+        logger.error("[NarrateKPI] ❌ Resend SDK failed for %s: %s. Falling back to httpx.", to_email, exc)
+        return _send_via_httpx(api_key, from_email, to_email, subject, html_body)
+
+
+def _send_via_httpx(
+    api_key: str,
+    from_email: str,
+    to_email: str,
+    subject: str,
+    html_body: str,
+) -> bool:
+    """Send email via a direct HTTP POST to the Resend REST API."""
+    try:
+        import httpx
+    except ImportError:
+        logger.warning(
+            "[NarrateKPI] ⚠️  httpx is not installed. Falling back to dry-run mode. "
+            "Install it with: pip install httpx"
+        )
+        return False
+
+    payload = {
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(RESEND_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        logger.info("[NarrateKPI] ✅ Email sent via httpx to %s — Resend ID: %s", to_email, data.get("id", "unknown"))
+        return True
+    except Exception as exc:
+        logger.error("[NarrateKPI] ❌ httpx email send failed to %s: %s", to_email, exc)
+        return False
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Public API
+# ──────────────────────────────────────────────────────────────────────
+
 
 def send_report_email(
     to_email: str,
@@ -207,6 +305,11 @@ def send_report_email(
 ) -> bool:
     """Convert a Markdown report to HTML and send it via the Resend API.
 
+    Delivery chain:
+      1. ``resend`` SDK (if installed)
+      2. ``httpx`` direct HTTP call
+      3. Dry-run — log to ``./email_output/`` and return ``True``
+
     Parameters
     ----------
     to_email:
@@ -216,12 +319,14 @@ def send_report_email(
     markdown_content:
         The Markdown body of the report.
     from_email:
-        Sender address; defaults to ``DEFAULT_FROM_EMAIL`` from env.
+        Sender address; defaults to ``FROM_EMAIL`` or ``DEFAULT_FROM_EMAIL``
+        environment variables.
 
     Returns
     -------
     bool
-        ``True`` if the send was successful (or dry-run mode is active).
+        ``True`` if the send was successful (or dry-run mode is active),
+        ``False`` only if all live delivery methods failed.
     """
     sender = from_email or DEFAULT_FROM_EMAIL
     email_html = _markdown_to_email_html(markdown_content)
@@ -231,45 +336,33 @@ def send_report_email(
         _log_dry_run(to_email, subject, email_html)
         return True
 
-    # ── Live Resend API call ──────────────────────────────────────
-    try:
-        import httpx
-    except ImportError:
-        logger.warning(
-            "[NarrateKPI] ⚠️  httpx is not installed. Falling back to dry-run mode. "
-            "Install it with: pip install httpx"
-        )
-        _log_dry_run(to_email, subject, email_html)
+    # ── Live delivery: SDK → httpx → dry-run ──────────────────────
+    success = _send_via_resend_sdk(
+        api_key=RESEND_API_KEY,
+        from_email=sender,
+        to_email=to_email,
+        subject=subject,
+        html_body=email_html,
+    )
+
+    if success:
         return True
 
-    payload = {
-        "from": sender,
-        "to": [to_email],
-        "subject": subject,
-        "html": email_html,
-    }
-    headers = {
-        "Authorization": f"Bearer {RESEND_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(RESEND_API_URL, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        logger.info("[NarrateKPI] ✅ Email sent to %s — Resend ID: %s", to_email, data.get("id", "unknown"))
-        return True
-    except Exception as exc:
-        logger.error("[NarrateKPI] ❌ Email send failed to %s: %s", to_email, exc)
-        # Fall back to dry-run logging so the pipeline doesn't break.
-        _log_dry_run(to_email, subject, email_html)
-        return False
+    # All live methods failed — fall back to dry-run logging so the
+    # pipeline doesn't break.
+    logger.warning(
+        "[NarrateKPI] ⚠️  All email delivery methods failed for %s. "
+        "Falling back to dry-run logging.",
+        to_email,
+    )
+    _log_dry_run(to_email, subject, email_html)
+    return False
 
 
 # ──────────────────────────────────────────────────────────────────────
 #  Dry-run logging
 # ──────────────────────────────────────────────────────────────────────
+
 
 def _log_dry_run(to_email: str, subject: str, email_html: str) -> None:
     """Log the email content locally for debugging."""
@@ -293,7 +386,7 @@ def _log_dry_run(to_email: str, subject: str, email_html: str) -> None:
         preview,
     )
     print(
-        f"[NarrateKPI] 📧 Dry-run email → {log_path.resolve()} "
+        f"[NarrateKPI] 📧 Dry-run email -> {log_path.resolve()} "
         f"(to={to_email}, subject='{subject}')",
         file=sys.stderr,
     )

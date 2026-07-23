@@ -24,11 +24,22 @@ services:
       # have verified the directory exists and is writable.
       # - key: NARRATEKPI_STORE_PATH
       #   value: "/opt/render/project/src/reports_store.json"
-      # ── LLM (optional — unset = dry-run mock mode) ──────────────
+      # ── LLM — NVIDIA (highest priority) ─────────────────────────
+      # - key: NVIDIA_API_KEY
+      #   sync: false
+      # - key: NVIDIA_MODEL_NAME
+      #   value: "meta/llama-3.3-70b-instruct"
+      # ── LLM — OpenAI / DeepSeek / Gemini (fallbacks) ───────────
       # - key: OPENAI_API_KEY
       #   sync: false
-      # ── Email (optional — unset = dry-run mock mode) ────────────
+      # - key: DEEPSEEK_API_KEY
+      #   sync: false
+      # - key: GEMINI_API_KEY
+      #   sync: false
+      # ── Email — Resend (optional — unset = dry-run mock mode) ───
       # - key: RESEND_API_KEY
       #   sync: false
+      # - key: FROM_EMAIL
+      #   value: "reports@youragency.com"
       # - key: DEFAULT_FROM_EMAIL
       #   value: "reports@youragency.com"

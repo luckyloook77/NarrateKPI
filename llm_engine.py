@@ -1,17 +1,19 @@
 """
 NarrateKPI — LLM Synthesis Engine (Module 2)
 
-Connects to an external LLM API (OpenAI, DeepSeek, or Google Gemini) to
-transform the ``summary_raw_json`` from the Math Engine into a structured
+Connects to an external LLM API (NVIDIA, OpenAI, DeepSeek, or Google Gemini)
+to transform the ``summary_raw_json`` from the Math Engine into a structured
 Markdown client report.
 
-Key design decisions:
-  • Uses ``httpx`` for HTTP calls (lightweight, no heavy SDK dependency).
-  • Reads API key from environment variables: ``OPENAI_API_KEY``,
-    ``DEEPSEEK_API_KEY``, or ``GEMINI_API_KEY``.
-  • When no API key is present, switches to **dry-run mode** and produces a
-    realistic template-based report (``prompts.generate_mock_report``) so
-    the pipeline can be tested without burning credits.
+Provider priority (first key found wins):
+  1. ``NVIDIA_API_KEY``   — OpenAI SDK → https://integrate.api.nvidia.com/v1
+  2. ``OPENAI_API_KEY``   — httpx       → https://api.openai.com/v1
+  3. ``DEEPSEEK_API_KEY`` — httpx       → https://api.deepseek.com
+  4. ``GEMINI_API_KEY``   — httpx       → https://generativelanguage.googleapis.com
+
+When no API key is present, switches to **dry-run mode** and produces a
+realistic template-based report so the pipeline can be tested without
+burning credits.
 """
 
 from __future__ import annotations
@@ -29,14 +31,24 @@ from prompts import SYSTEM_PROMPT, build_user_prompt, generate_mock_report
 # ──────────────────────────────────────────────────────────────────────
 
 # Maps environment-variable → (provider label, base_url, model).
+# Ordered by priority — the first env var that is set wins.
 _PROVIDERS: Dict[str, tuple[str, str, str]] = {
+    # NVIDIA (uses openai SDK, base_url is for reference / health reports)
+    "NVIDIA_API_KEY": ("nvidia", "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct"),
+    # Standard OpenAI-compatible providers (via httpx)
     "OPENAI_API_KEY": ("openai", "https://api.openai.com/v1", "gpt-4o-mini"),
     "DEEPSEEK_API_KEY": ("deepseek", "https://api.deepseek.com", "deepseek-chat"),
+    # Google Gemini (different API structure)
     "GEMINI_API_KEY": ("gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini-2.0-flash"),
 }
 
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_TEMPERATURE = 0.3
+
+# Allow model override per provider via environment variables.
+_MODEL_OVERRIDES: Dict[str, str] = {
+    "NVIDIA_API_KEY": "NVIDIA_MODEL_NAME",
+}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -53,12 +65,77 @@ def detect_provider() -> Optional[tuple[str, str, str, str]]:
     for env_var, (label, base_url, model) in _PROVIDERS.items():
         api_key = os.environ.get(env_var)
         if api_key:
+            # Check for model override (e.g. NVIDIA_MODEL_NAME)
+            override_var = _MODEL_OVERRIDES.get(env_var)
+            if override_var:
+                model = os.environ.get(override_var, model)
             return (label, base_url, model, api_key)
     return None
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  API call functions
+#  NVIDIA API call (via openai SDK)
+# ──────────────────────────────────────────────────────────────────────
+
+def _call_nvidia(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    temperature: float = DEFAULT_TEMPERATURE,
+) -> str:
+    """Call NVIDIA's inference endpoint using the standard ``openai`` SDK.
+
+    Uses the OpenAI-compatible API at ``https://integrate.api.nvidia.com/v1``
+    with the provided NVIDIA API key.
+
+    Falls back to an ``httpx``-based raw call if the ``openai`` package
+    is not installed.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        print(
+            "[NarrateKPI] ⚠️  openai SDK not installed. "
+            "Falling back to httpx for NVIDIA API call. "
+            "Install it with: pip install openai",
+            file=sys.stderr,
+        )
+        return _call_openai_compatible(
+            api_key=api_key,
+            base_url="https://integrate.api.nvidia.com/v1",
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=api_key,
+    )
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
+    content = response.choices[0].message.content
+    if content is None:
+        raise ValueError("NVIDIA API returned empty response content")
+
+    return content.strip()
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  OpenAI-compatible API call (via httpx)
 # ──────────────────────────────────────────────────────────────────────
 
 def _call_openai_compatible(
@@ -70,7 +147,11 @@ def _call_openai_compatible(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     temperature: float = DEFAULT_TEMPERATURE,
 ) -> str:
-    """Call an OpenAI-compatible chat completions endpoint via ``httpx``."""
+    """Call an OpenAI-compatible chat completions endpoint via ``httpx``.
+
+    Works for OpenAI, DeepSeek, and any provider that follows the
+    ``/chat/completions`` convention.
+    """
     try:
         import httpx
     except ImportError:
@@ -114,6 +195,10 @@ def _call_openai_compatible(
 
     return content.strip()
 
+
+# ──────────────────────────────────────────────────────────────────────
+#  Gemini API call (via httpx)
+# ──────────────────────────────────────────────────────────────────────
 
 def _call_gemini(
     api_key: str,
@@ -174,8 +259,9 @@ def generate_report(
 ) -> str:
     """Generate a structured Markdown report from the Math Engine's output.
 
-    Automatically detects the LLM provider from environment variables.
-    Falls back to a mock template-based report when no API key is set.
+    Automatically detects the LLM provider from environment variables
+    (NVIDIA → OpenAI → DeepSeek → Gemini).  Falls back to a mock
+    template-based report when no API key is set.
 
     Parameters
     ----------
@@ -221,7 +307,17 @@ def generate_report(
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
+        elif label == "nvidia":
+            content = _call_nvidia(
+                api_key=api_key,
+                model=active_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
         else:
+            # OpenAI-compatible (OpenAI, DeepSeek, etc.) via httpx
             content = _call_openai_compatible(
                 api_key=api_key,
                 base_url=base_url,

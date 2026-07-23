@@ -26,7 +26,7 @@
 | Feature | Description |
 |---|---|
 | 🧮 **Zero-Hallucination Math Engine** | Pure Python calculations for CTR, CPA, ROAS, CPC with deterministic anomaly detection (no LLM used for calculations) |
-| 🤖 **AI Narrative Generation** | Structured Markdown reports via OpenAI / DeepSeek / Gemini — or dry-run mock mode with no API key |
+| 🤖 **AI Narrative Generation** | Structured Markdown reports via NVIDIA / OpenAI / DeepSeek / Gemini — or dry-run mock mode with no API key |
 | 👁️ **Human-in-the-Loop Review** | Dark-mode web UI with split Markdown editor, live preview, KPI metrics bar, and status lifecycle |
 | 📧 **One-Click Email Delivery** | Markdown-to-HTML conversion with inline CSS, dispatched via Resend API or logged locally for dry-run |
 | 🐳 **Docker-Ready** | Multi-stage Dockerfile for slim production images |
@@ -39,7 +39,7 @@
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────────┐
 │  Mock Data   │────▶│  Math Engine  │────▶│  LLM Engine  │
-│  3 clients   │     │  (Pydantic)   │     │ (OpenAI/Gemini│
+│  3 clients   │     │  (Pydantic)   │     │ (NVIDIA/OpenAI│
 │              │     │  Anomaly      │     │  or Dry-Run)  │
 │              │     │  Detection    │     │              │
 └─────────────┘     └──────────────┘     └─────────────┘
@@ -187,11 +187,14 @@ Create a custom report with arbitrary metrics.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
+| `NVIDIA_API_KEY` | No | — | LLM provider: NVIDIA (highest priority) |
+| `NVIDIA_MODEL_NAME` | No | `meta/llama-3.3-70b-instruct` | NVIDIA model override |
 | `OPENAI_API_KEY` | No | — | LLM provider: OpenAI |
 | `DEEPSEEK_API_KEY` | No | — | LLM provider: DeepSeek |
 | `GEMINI_API_KEY` | No | — | LLM provider: Google Gemini |
 | `RESEND_API_KEY` | No | — | Email delivery via Resend |
-| `DEFAULT_FROM_EMAIL` | No | `reports@narratekpi.com` | Sender email address |
+| `FROM_EMAIL` | No | `reports@narratekpi.com` | Sender email (takes precedence) |
+| `DEFAULT_FROM_EMAIL` | No | `reports@narratekpi.com` | Legacy sender email alias |
 | `NARRATEKPI_STORE_PATH` | No | `./reports_store.json` | Database file path |
 
 > **Note**: If no LLM API key is set, the app runs in **dry-run mode** — reports are generated from realistic templates. If no email API key is set, emails are logged to `email_output/`.
