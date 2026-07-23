@@ -700,7 +700,11 @@ function reviewQueue() {
       this.loading = true;
       try {
         const res = await fetch('/api/reports/generate-all', { method: 'POST' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+          let detail = '';
+          try { const err = await res.json(); detail = err.detail || JSON.stringify(err); } catch(_) { detail = await res.text().catch(() => ''); }
+          throw new Error('HTTP ' + res.status + (detail ? ': ' + detail.slice(0, 120) : ''));
+        }
         const data = await res.json();
         this.reports = data.reports;
         if (data.reports.length > 0) {

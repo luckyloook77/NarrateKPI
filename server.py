@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -52,11 +53,19 @@ app = FastAPI(
     title="NarrateKPI",
     description="AI-Driven Agency Report Automation — Review Queue API",
     version="3.0.0",
+    redirect_slashes=True,
+)
+
+# ── CORS: same-origin SPA doesn't need it, but Render's proxy may
+#     require headers for asset preflight checks.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 _static_dir = HERE / "static"
-if _static_dir.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -364,6 +373,14 @@ async def send_report(report_id: str) -> SendReportResponse:
         sent_at=now,
         sent_to=target,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Static file serving (registered AFTER API routes to avoid shadowing)
+# ──────────────────────────────────────────────────────────────────────
+
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 # ──────────────────────────────────────────────────────────────────────
