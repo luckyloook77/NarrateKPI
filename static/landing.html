@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NarrateKPI — AI-Driven Agency Report Automation</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap');
+
+  * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+  .glow { box-shadow: 0 0 30px rgba(99,102,241,0.2), 0 0 60px rgba(99,102,241,0.05); }
+  .glow-sm { box-shadow: 0 0 16px rgba(99,102,241,0.12); }
+  .glow-text { text-shadow: 0 0 40px rgba(99,102,241,0.3); }
+
+  .card-hover { transition: all 0.25s ease; }
+  .card-hover:hover { transform: translateY(-3px); border-color: #3f3f46; box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+
+  .fade-in { animation: fadeIn 0.6s ease forwards; opacity: 0; }
+  .fade-in-up { animation: fadeInUp 0.6s ease forwards; opacity: 0; }
+  .fade-in-up-d1 { animation: fadeInUp 0.6s ease 0.1s forwards; opacity: 0; }
+  .fade-in-up-d2 { animation: fadeInUp 0.6s ease 0.2s forwards; opacity: 0; }
+  .fade-in-up-d3 { animation: fadeInUp 0.6s ease 0.3s forwards; opacity: 0; }
+  .fade-in-up-d4 { animation: fadeInUp 0.6s ease 0.4s forwards; opacity: 0; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+  .pulse-dot { animation: pulseDot 2.5s ease-in-out infinite; }
+  @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .gradient-border {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.3), rgba(139,92,246,0.1), rgba(99,102,241,0.05));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .grid-pattern {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+</style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 antialiased">
+
+  <!-- ============================================================ -->
+  <!-- NAVBAR                                                       -->
+  <!-- ============================================================ -->
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-zinc-950/80 backdrop-blur-xl border-b border-zinc-800/50">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="relative w-9 h-9">
+          <div class="absolute inset-0 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 opacity-90 glow"></div>
+          <div class="relative w-full h-full flex items-center justify-center">
+            <span class="text-white font-bold text-xs tracking-tight">NK</span>
+          </div>
+        </div>
+        <div class="flex items-baseline gap-2.5">
+          <span class="text-lg font-semibold tracking-tight text-zinc-100">NarrateKPI</span>
+          <span class="text-[10px] font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase tracking-wider">Agency Edition</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <a href="/app"
+          class="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-150 bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98] glow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Launch App
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ============================================================ -->
+  <!-- HERO SECTION                                                 -->
+  <!-- ============================================================ -->
+  <section class="relative min-h-screen flex items-center overflow-hidden pt-16">
+    <!-- Grid background -->
+    <div class="absolute inset-0 grid-pattern opacity-60"></div>
+    <!-- Gradient orbs -->
+    <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 right-1/4 w-80 h-80 bg-violet-500/8 rounded-full blur-3xl"></div>
+
+    <div class="relative max-w-5xl mx-auto px-6 py-24 text-center">
+      <div class="fade-in-up mb-6">
+        <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs text-zinc-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+          Now available in dry-run mode — no API key required
+        </span>
+      </div>
+
+      <h1 class="fade-in-up-d1 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.08] mb-6">
+        <span class="text-zinc-100">Automate Agency</span><br>
+        <span class="bg-gradient-to-r from-indigo-300 via-violet-200 to-indigo-300 bg-clip-text text-transparent glow-text">Client Reports</span>
+        <br>
+        <span class="text-zinc-100">in Seconds</span>
+      </h1>
+
+      <p class="fade-in-up-d2 text-lg sm:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+        Replace manual spreadsheets with AI-powered narratives. NarrateKPI ingests your ad metrics,
+        detects anomalies with a zero-hallucination math engine, and generates client-ready reports
+        — reviewed and approved by your team before sending.
+      </p>
+
+      <div class="fade-in-up-d3 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="/app"
+          class="inline-flex items-center gap-3 px-8 py-3.5 rounded-xl text-base font-semibold transition-all duration-150 bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98] glow">
+          <span>Launch the App</span>
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+        </a>
+        <a href="/app?demo=true"
+          class="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-base font-medium transition-all duration-150 border border-zinc-700 hover:border-zinc-500 text-zinc-300 hover:text-zinc-100 active:scale-[0.98]">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Watch Demo
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- FEATURES SECTION                                             -->
+  <!-- ============================================================ -->
+  <section class="relative py-24 border-t border-zinc-800/40">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="text-center mb-16">
+        <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-100 mb-4">
+          Everything you need to <span class="bg-gradient-to-r from-indigo-300 to-violet-200 bg-clip-text text-transparent">run reports at scale</span>
+        </h2>
+        <p class="text-zinc-400 text-lg max-w-xl mx-auto">
+          From raw metrics to polished client narratives — no spreadsheets, no late nights.
+        </p>
+      </div>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+
+        <!-- Feature 1 -->
+        <div class="gradient-border card-hover bg-zinc-900/60 rounded-xl p-6 border border-zinc-800/50">
+          <div class="w-11 h-11 rounded-xl bg-indigo-950/50 border border-indigo-900/40 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+          </div>
+          <h3 class="text-base font-semibold text-zinc-100 mb-2">Zero-Hallucination<br>Math Engine</h3>
+          <p class="text-sm text-zinc-400 leading-relaxed">
+            Pure deterministic Python calculations for CTR, CPC, CPA, and ROAS. Configurable anomaly threshold rules — no LLM hallucinated metrics.
+          </p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="gradient-border card-hover bg-zinc-900/60 rounded-xl p-6 border border-zinc-800/50">
+          <div class="w-11 h-11 rounded-xl bg-violet-950/50 border border-violet-900/40 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          </div>
+          <h3 class="text-base font-semibold text-zinc-100 mb-2">AI Narrative<br>Generation</h3>
+          <p class="text-sm text-zinc-400 leading-relaxed">
+            Structured Markdown reports with executive summaries, key insights grouped by severity, and a 3-point action plan — ready for client review.
+          </p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="gradient-border card-hover bg-zinc-900/60 rounded-xl p-6 border border-zinc-800/50">
+          <div class="w-11 h-11 rounded-xl bg-sky-950/50 border border-sky-900/40 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          </div>
+          <h3 class="text-base font-semibold text-zinc-100 mb-2">Human-in-the-Loop<br>Review Queue</h3>
+          <p class="text-sm text-zinc-400 leading-relaxed">
+            Dark-mode SPA with split Markdown editor, live preview, KPI metrics bar, and a full DRAFT → IN_REVIEW → APPROVED → SENT lifecycle.
+          </p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="gradient-border card-hover bg-zinc-900/60 rounded-xl p-6 border border-zinc-800/50">
+          <div class="w-11 h-11 rounded-xl bg-emerald-950/50 border border-emerald-900/40 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          </div>
+          <h3 class="text-base font-semibold text-zinc-100 mb-2">One-Click<br>Email Delivery</h3>
+          <p class="text-sm text-zinc-400 leading-relaxed">
+            Approve and dispatch reports via Resend API with email-safe HTML conversion. Dry-run mode for testing — no credits burned.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- HOW IT WORKS SECTION                                         -->
+  <!-- ============================================================ -->
+  <section class="relative py-24 border-t border-zinc-800/40">
+    <div class="max-w-5xl mx-auto px-6">
+      <div class="text-center mb-16">
+        <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-100 mb-4">
+          From metrics to <span class="bg-gradient-to-r from-indigo-300 to-violet-200 bg-clip-text text-transparent">client-ready reports</span>
+        </h2>
+        <p class="text-zinc-400 text-lg max-w-xl mx-auto">
+          Four steps — zero friction. No more copying numbers into PowerPoint.
+        </p>
+      </div>
+
+      <div class="grid sm:grid-cols-4 gap-8">
+        <!-- Step 1 -->
+        <div class="text-center">
+          <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-indigo-950/40 border border-indigo-900/50 flex items-center justify-center">
+            <span class="text-lg font-bold text-indigo-400">1</span>
+          </div>
+          <h3 class="text-sm font-semibold text-zinc-100 mb-1.5">Ingest Metrics</h3>
+          <p class="text-xs text-zinc-500 leading-relaxed">Import ad platform data manually or via JSON — impressions, clicks, spend, conversions, revenue.</p>
+        </div>
+        <!-- Step 2 -->
+        <div class="text-center">
+          <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-indigo-950/40 border border-indigo-900/50 flex items-center justify-center">
+            <span class="text-lg font-bold text-indigo-400">2</span>
+          </div>
+          <h3 class="text-sm font-semibold text-zinc-100 mb-1.5">Detect Anomalies</h3>
+          <p class="text-xs text-zinc-500 leading-relaxed">Math engine flags CPA spikes, ROAS drops, and CTR shifts with configurable severity rules.</p>
+        </div>
+        <!-- Step 3 -->
+        <div class="text-center">
+          <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-indigo-950/40 border border-indigo-900/50 flex items-center justify-center">
+            <span class="text-lg font-bold text-indigo-400">3</span>
+          </div>
+          <h3 class="text-sm font-semibold text-zinc-100 mb-1.5">Review & Edit</h3>
+          <p class="text-xs text-zinc-500 leading-relaxed">Human-in-the-loop: tweak the AI-generated narrative in a live Markdown editor before approving.</p>
+        </div>
+        <!-- Step 4 -->
+        <div class="text-center">
+          <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-indigo-950/40 border border-indigo-900/50 flex items-center justify-center">
+            <span class="text-lg font-bold text-indigo-400">4</span>
+          </div>
+          <h3 class="text-sm font-semibold text-zinc-100 mb-1.5">Send to Client</h3>
+          <p class="text-xs text-zinc-500 leading-relaxed">One click dispatches a beautifully formatted report via email — no manual copy-paste.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- CTA SECTION                                                  -->
+  <!-- ============================================================ -->
+  <section class="relative py-24 border-t border-zinc-800/40">
+    <div class="absolute inset-0 bg-gradient-to-b from-indigo-950/10 to-transparent pointer-events-none"></div>
+    <div class="max-w-3xl mx-auto px-6 text-center">
+      <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-100 mb-4">
+        Ready to reclaim your evenings?
+      </h2>
+      <p class="text-zinc-400 text-lg mb-10 max-w-lg mx-auto">
+        No sign-up, no credit card. Open the app and generate sample reports instantly.
+      </p>
+      <a href="/app"
+        class="inline-flex items-center gap-3 px-8 py-3.5 rounded-xl text-base font-semibold transition-all duration-150 bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98] glow">
+        <span>Launch the App</span>
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- FOOTER                                                       -->
+  <!-- ============================================================ -->
+  <footer class="border-t border-zinc-800/40 py-12">
+    <div class="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2.5">
+        <div class="w-6 h-6 rounded bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+          <span class="text-white font-bold text-[8px]">NK</span>
+        </div>
+        <span class="text-sm text-zinc-400">NarrateKPI <span class="text-zinc-600">·</span> <span class="text-zinc-600">Agency Edition</span></span>
+      </div>
+      <div class="flex items-center gap-6 text-xs text-zinc-600">
+        <span>Built with Python + FastAPI</span>
+        <span>·</span>
+        <span>$0-budget deployment (Render / Docker)</span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

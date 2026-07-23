@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────
+#  NarrateKPI — Render Blueprint (Free Tier)
+#  https://render.com/docs/blueprint-spec
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: narratekpi
+    env: python
+    region: oregon  # Free-tier eligible region
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: |
+      uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: NARRATEKPI_STORE_PATH
+        value: "/var/data/reports_store.json"
+      # ── LLM (optional — unset = dry-run mock mode) ──────────────
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # ── Email (optional — unset = dry-run mock mode) ────────────
+      # - key: RESEND_API_KEY
+      #   sync: false
+      # - key: DEFAULT_FROM_EMAIL
+      #   value: "reports@youragency.com"

@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NarrateKPI — Review Queue</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace !important; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+  .glow { box-shadow: 0 0 20px rgba(99,102,241,0.15), 0 0 40px rgba(99,102,241,0.05); }
+  .glow-sm { box-shadow: 0 0 12px rgba(99,102,241,0.1); }
+  .glow-emerald { box-shadow: 0 0 16px rgba(16,185,129,0.12); }
+
+  .sidebar-card { transition: all 0.15s ease; }
+  .sidebar-card:hover { background: #18181b; }
+  .sidebar-card.active { background: #1c1917; box-shadow: inset 2px 0 0 0 #818cf8; }
+
+  .kpi-card { transition: all 0.15s ease; }
+  .kpi-card:hover { background: #18181b; border-color: #27272a; }
+
+  .editor-textarea { transition: box-shadow 0.15s ease; }
+  .editor-textarea:focus { box-shadow: inset 0 0 0 1px #6366f1; outline: none; }
+
+  .fade-in { animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .slide-in { animation: slideIn 0.2s ease; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
+
+  .scale-in { animation: scaleIn 0.15s ease; }
+  @keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+
+  .pulse-dot { animation: pulseDot 2s ease-in-out infinite; }
+  @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Markdown prose styling */
+  .markdown-body h2 { font-size: 1.05rem; font-weight: 700; margin: 1.25rem 0 0.5rem; color: #f4f4f5; letter-spacing: -0.01em; }
+  .markdown-body h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.375rem; color: #e4e4e7; }
+  .markdown-body p { margin-bottom: 0.625rem; line-height: 1.7; color: #a1a1aa; }
+  .markdown-body hr { margin: 1rem 0; border: none; border-top: 1px solid #27272a; }
+  .markdown-body strong { color: #f4f4f5; font-weight: 600; }
+  .markdown-body blockquote { border-left: 2.5px solid #6366f1; padding: 0.5rem 1rem; margin: 0.625rem 0; background: #18181b; border-radius: 0 0.5rem 0.5rem 0; color: #a1a1aa; font-size: 0.875rem; }
+  .markdown-body code { background: #18181b; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.8125rem; color: #a5b4fc; font-family: 'JetBrains Mono', monospace; }
+  .markdown-body pre { background: #18181b; padding: 0.875rem 1rem; border-radius: 0.5rem; overflow-x: auto; border: 1px solid #27272a; margin: 0.75rem 0; }
+  .markdown-body pre code { background: none; padding: 0; border-radius: 0; }
+  .markdown-body ul, .markdown-body ol { padding-left: 1.25rem; margin-bottom: 0.5rem; color: #a1a1aa; }
+  .markdown-body li { margin-bottom: 0.25rem; }
+  .markdown-body a { color: #818cf8; text-decoration: underline; text-underline-offset: 2px; }
+  .markdown-body a:hover { color: #a5b4fc; }
+
+  /* Tab button styles */
+  .filter-tab { transition: all 0.15s ease; cursor: pointer; }
+  .filter-tab:hover { color: #f4f4f5; background: #18181b; }
+  .filter-tab.active { color: #f4f4f5; background: #27272a; font-weight: 500; }
+
+  /* Button loading state */
+  .btn-loading { pointer-events: none; opacity: 0.7; }
+</style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 antialiased">
+
+<div x-data="reviewQueue()" class="h-screen flex flex-col overflow-hidden">
+
+  <!-- ============================================================ -->
+  <!-- TOP HEADER (Navbar)                                          -->
+  <!-- ============================================================ -->
+  <header class="flex items-center justify-between px-5 py-2.5 border-b border-zinc-800/80 bg-zinc-950/95 backdrop-blur-md shrink-0 z-20">
+    <div class="flex items-center gap-4">
+      <!-- Brand -->
+      <div class="flex items-center gap-2.5">
+        <div class="relative w-8 h-8">
+          <div class="absolute inset-0 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 opacity-90 glow"></div>
+          <div class="relative w-full h-full flex items-center justify-center">
+            <span class="text-white font-bold text-xs tracking-tight">NK</span>
+          </div>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-[15px] font-semibold tracking-tight text-zinc-100">NarrateKPI</span>
+          <span class="text-[9px] font-medium px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase tracking-wider">Agency Edition</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <!-- Status bar -->
+      <template x-if="reports.length > 0">
+        <div class="flex items-center gap-3 mr-2">
+          <div class="flex items-center gap-1.5 text-xs text-zinc-400">
+            <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 pulse-dot"></span>
+            <span x-text="'Week ' + (reports[0]?.period || '—')"></span>
+          </div>
+          <span class="text-zinc-700">|</span>
+          <span class="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-950/40 text-amber-400 border border-amber-900/40">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            Dry-Run Mode
+          </span>
+        </div>
+      </template>
+
+      <!-- Create Custom Report button -->
+      <button @click="showCreateModal = true"
+        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-all duration-150 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 active:scale-[0.98]"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Report
+      </button>
+
+      <!-- Generate button -->
+      <button @click="generateAll()" :disabled="loading"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 glow-sm"
+        :class="loading ? 'bg-indigo-900/30 text-indigo-300/50 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98]'"
+      >
+        <template x-if="!loading">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </template>
+        <template x-if="loading">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        </template>
+        <span x-text="loading ? 'Generating...' : 'Generate Weekly'"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- MAIN LAYOUT: SIDEBAR + CONTENT                               -->
+  <!-- ============================================================ -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ====== LEFT SIDEBAR ====== -->
+    <aside class="w-[320px] shrink-0 border-r border-zinc-800/80 bg-zinc-950 flex flex-col">
+
+      <!-- Search -->
+      <div class="px-4 pt-4 pb-3">
+        <div class="relative">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <input type="text" x-model="searchQuery" placeholder="Search clients..."
+            class="w-full pl-9 pr-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 transition-colors duration-150"
+          >
+        </div>
+      </div>
+
+      <!-- Status filter tabs -->
+      <div class="px-4 pb-3 flex items-center gap-1">
+        <template x-for="tab in filterTabs" :key="tab.value">
+          <button @click="activeFilter = tab.value"
+            class="filter-tab px-3 py-1.5 rounded-md text-xs transition-all duration-150"
+            :class="activeFilter === tab.value ? 'active bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
+          >
+            <span x-text="tab.label"></span>
+            <span class="ml-1.5 text-[10px] opacity-60" x-text="tab.count"></span>
+          </button>
+        </template>
+      </div>
+
+      <!-- Client list -->
+      <div class="flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 space-y-0.5" x-show="filteredReports.length > 0">
+        <template x-for="r in filteredReports" :key="r.id">
+          <div @click="selectReport(r.id)"
+            class="sidebar-card flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer border border-transparent"
+            :class="selectedId === r.id ? 'active bg-zinc-900/80 border-zinc-800' : 'border-transparent hover:bg-zinc-900/40'"
+          >
+            <!-- Status dot -->
+            <div class="w-2 h-2 rounded-full shrink-0" :class="{
+              'bg-amber-400': r.status === 'DRAFT',
+              'bg-blue-400': r.status === 'IN_REVIEW',
+              'bg-emerald-400': r.status === 'APPROVED',
+              'bg-zinc-500': r.status === 'SENT'
+            }"></div>
+
+            <!-- Info -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-zinc-200 truncate" x-text="displayName(r.client_name)"></span>
+                <span class="text-[9px] font-medium px-1 py-0.5 rounded uppercase tracking-wider shrink-0" :class="{
+                  'bg-amber-950/30 text-amber-400/70': r.status === 'DRAFT',
+                  'bg-blue-950/30 text-blue-400/70': r.status === 'IN_REVIEW',
+                  'bg-emerald-950/30 text-emerald-400/70': r.status === 'APPROVED',
+                  'bg-zinc-800/50 text-zinc-500': r.status === 'SENT'
+                }" x-text="r.status"></span>
+              </div>
+              <div class="text-[11px] text-zinc-500 mt-0.5" x-text="r.period"></div>
+            </div>
+
+            <!-- Anomaly badge -->
+            <div class="shrink-0">
+              <template x-if="r.anomalies_found > 0">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-950/40 text-rose-400 border border-rose-900/40">
+                  <span x-text="r.anomalies_found"></span>
+                  <span>issues</span>
+                </span>
+              </template>
+              <template x-if="r.anomalies_found === 0">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-950/30 text-emerald-400 border border-emerald-900/30">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                  Clean
+                </span>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Empty: no reports -->
+      <div class="flex-1 flex items-center justify-center px-6" x-show="reports.length === 0 && !loading">
+        <div class="text-center">
+          <div class="w-12 h-12 mx-auto mb-4 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <svg class="w-6 h-6 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          </div>
+          <p class="text-sm text-zinc-400 font-medium">No reports yet</p>
+          <p class="text-xs text-zinc-600 mt-1">Click "Generate Weekly Reports" above to start.</p>
+        </div>
+      </div>
+
+      <!-- Empty: filtered out -->
+      <div class="flex-1 flex items-center justify-center px-6" x-show="reports.length > 0 && filteredReports.length === 0">
+        <div class="text-center">
+          <svg class="w-8 h-8 mx-auto mb-3 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <p class="text-sm text-zinc-500">No results match your filter</p>
+          <p class="text-xs text-zinc-600 mt-1">Try a different search or status.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ====== MAIN CONTENT AREA ====== -->
+    <main class="flex-1 flex flex-col overflow-hidden bg-zinc-950">
+
+      <!-- No report selected state -->
+      <div class="flex-1 flex items-center justify-center" x-show="!selectedReport && reports.length > 0">
+        <div class="text-center">
+          <div class="w-16 h-16 mx-auto mb-5 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <svg class="w-8 h-8 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/></svg>
+          </div>
+          <p class="text-sm text-zinc-400 font-medium">Select a client report</p>
+          <p class="text-xs text-zinc-600 mt-1">Choose from the sidebar to review and edit.</p>
+        </div>
+      </div>
+
+      <!-- Active report workspace -->
+      <template x-if="selectedReport">
+        <div class="flex-1 flex flex-col overflow-hidden">
+
+          <!-- ── TOP BAR ── -->
+          <div class="flex items-center justify-between px-6 py-3 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-sm shrink-0">
+            <div class="flex items-center gap-4">
+              <div>
+                <h2 class="text-[15px] font-semibold text-zinc-100 tracking-tight" x-text="selectedReport.client_name"></h2>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <span class="text-[11px] text-zinc-500" x-text="selectedReport.period"></span>
+                  <span class="text-zinc-700">·</span>
+                  <span class="inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full" :class="{
+                    'bg-amber-950/30 text-amber-400': selectedReport.status === 'DRAFT',
+                    'bg-blue-950/30 text-blue-400': selectedReport.status === 'IN_REVIEW',
+                    'bg-emerald-950/30 text-emerald-400': selectedReport.status === 'APPROVED',
+                    'bg-zinc-800/50 text-zinc-500': selectedReport.status === 'SENT'
+                  }">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="{
+                      'bg-amber-400': selectedReport.status === 'DRAFT',
+                      'bg-blue-400': selectedReport.status === 'IN_REVIEW',
+                      'bg-emerald-400': selectedReport.status === 'APPROVED',
+                      'bg-zinc-500': selectedReport.status === 'SENT'
+                    }"></span>
+                    <span x-text="selectedReport.status"></span>
+                  </span>
+                  <template x-if="selectedReport.updated_at">
+>
+                    <span class="text-[10px] text-zinc-600">Saved <span x-text="timeAgo(selectedReport.updated_at)"></span></span>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button @click="saveDraft()" :disabled="!dirty"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150"
+                :class="dirty ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 active:scale-[0.98]' : 'bg-zinc-900/50 text-zinc-600 cursor-not-allowed border border-zinc-800/50'"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+                Save Draft
+              </button>
+              <button @click="approveAndSend()" :disabled="selectedReport.status === 'SENT'"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150"
+                :class="selectedReport.status === 'SENT' ? 'bg-zinc-900/50 text-zinc-600 cursor-not-allowed border border-zinc-800/50' : selectedReport.status === 'APPROVED' ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 active:scale-[0.98]' : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-[0.98] glow-emerald'"
+              >
+                <template x-if="selectedReport.status === 'SENT'">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                </template>
+                <template x-if="selectedReport.status !== 'SENT' && selectedReport.status !== 'APPROVED'">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                </template>
+                <template x-if="selectedReport.status === 'APPROVED' && selectedReport.status !== 'SENT'">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                </template>
+                <span x-text="selectedReport.status === 'SENT' ? 'Sent' : selectedReport.status === 'APPROVED' ? 'Send to Client' : 'Approve & Send'"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── COMPACT KPI METRICS BAR ── -->
+          <div class="px-6 py-3 border-b border-zinc-800/60 bg-zinc-950/50" x-show="selectedReport.raw_metrics?.current">
+            <div class="flex items-center gap-4">
+              <!-- KPI cards -->
+              <template x-for="kpi in kpiCards" :key="kpi.key">
+                <div class="kpi-card flex-1 flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-zinc-900/50 border border-zinc-800/50 cursor-default min-w-0">
+                  <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" :style="{ background: kpi.bg }">
+                    <span x-html="kpi.icon" class="w-4 h-4"></span>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-[10px] font-medium text-zinc-500 uppercase tracking-wider" x-text="kpi.label"></div>
+                    <div class="flex items-baseline gap-1.5 mt-0.5">
+                      <span class="text-sm font-semibold text-zinc-100 tabular-nums" x-text="kpi.format(kpi.currentVal())"></span>
+                      <span class="text-[10px] font-medium" :class="kpi.directionClass()" x-text="kpi.changeText()"></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- ── SPLIT MARKDOWN EDITOR ── -->
+          <div class="flex-1 flex overflow-hidden">
+
+            <!-- Left: Editor -->
+            <div class="w-1/2 flex flex-col border-r border-zinc-800/60">
+              <div class="flex items-center justify-between px-5 py-2.5 border-b border-zinc-800/60 bg-zinc-950/50">
+                <div class="flex items-center gap-2">
+                  <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                  <span class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Editor</span>
+                </div>
+                <span class="text-[10px] text-zinc-600 font-mono" x-text="(editContent?.length || 0) + ' chars'"></span>
+              </div>
+              <textarea x-model="editContent" @input="onEdit()" spellcheck="false"
+                class="editor-textarea flex-1 p-5 text-sm leading-relaxed font-mono bg-zinc-950 text-zinc-300 border-0 resize-none scrollbar-thin"
+              ></textarea>
+            </div>
+
+            <!-- Right: Live Preview -->
+            <div class="w-1/2 flex flex-col">
+              <div class="flex items-center justify-between px-5 py-2.5 border-b border-zinc-800/60 bg-zinc-950/50">
+                <div class="flex items-center gap-2">
+                  <svg class="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                  <span class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Preview</span>
+                </div>
+                <span class="text-[10px] text-zinc-600">rendered via marked.js</span>
+              </div>
+              <div class="flex-1 overflow-y-auto scrollbar-thin p-6 markdown-body text-sm leading-relaxed fade-in" x-html="renderedPreview"></div>
+            </div>
+
+          </div>
+        </div>
+      </template>
+    </main>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- CUSTOM REPORT MODAL                                          -->
+  <!-- ============================================================ -->
+  <div x-show="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center" 
+    x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+    @click.self="showCreateModal = false">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+    <div class="relative bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto scrollbar-thin scale-in"
+      @click.stop>
+      <!-- Header -->
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-zinc-800/60">
+        <div>
+          <h3 class="text-[15px] font-semibold text-zinc-100">Create Custom Report</h3>
+          <p class="text-xs text-zinc-500 mt-0.5">Enter client metrics to generate a new report</p>
+        </div>
+        <button @click="showCreateModal = false" class="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Form -->
+      <div class="px-6 py-5 space-y-4">
+        <!-- Identity row -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">Client Name</label>
+            <input type="text" x-model="form.clientName" placeholder="e.g. Acme Corp"
+              class="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/60 transition-colors">
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">Client Email</label>
+            <input type="email" x-model="form.targetEmail" placeholder="client@example.com"
+              class="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/60 transition-colors">
+          </div>
+        </div>
+
+        <!-- Period -->
+        <div>
+          <label class="block text-[11px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">Period</label>
+          <input type="text" x-model="form.period" placeholder="e.g. 2026-W30"
+            class="w-full px-3 py-2 bg-zinc-800/50 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/60 transition-colors font-mono">
+        </div>
+
+        <!-- Current metrics -->
+        <div>
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Current Period Metrics</span>
+            <span class="h-px flex-1 bg-zinc-800"></span>
+          </div>
+          <div class="grid grid-cols-5 gap-2">
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Impr.</label>
+              <input type="number" x-model="form.impressions" min="0" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/60 transition-colors font-mono">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Clicks</label>
+              <input type="number" x-model="form.clicks" min="0" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/60 transition-colors font-mono">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Spend</label>
+              <input type="number" x-model="form.spend" min="0" step="0.01" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/60 transition-colors font-mono">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Conv.</label>
+              <input type="number" x-model="form.conversions" min="0" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/60 transition-colors font-mono">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Rev.</label>
+              <input type="number" x-model="form.revenue" min="0" step="0.01" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/60 transition-colors font-mono">
+            </div>
+          </div>
+        </div>
+
+        <!-- Previous metrics -->
+        <div>
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Previous Period Metrics</span>
+            <span class="h-px flex-1 bg-zinc-800"></span>
+          </div>
+          <div class="grid grid-cols-5 gap-2">
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Impr.</label>
+              <input type="number" x-model="form.prevImpressions" min="0" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500/60 transition-colors">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Clicks</label>
+              <input type="number" x-model="form.prevClicks" min="0" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500/60 transition-colors">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Spend</label>
+              <input type="number" x-model="form.prevSpend" min="0" step="0.01" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500/60 transition-colors">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Conv.</label>
+              <input type="number" x-model="form.prevConversions" min="0" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500/60 transition-colors">
+            </div>
+            <div>
+              <label class="block text-[9px] font-medium text-zinc-500 uppercase tracking-wider mb-1">Rev.</label>
+              <input type="number" x-model="form.prevRevenue" min="0" step="0.01" placeholder="0"
+                class="w-full px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded-md text-sm text-zinc-200 font-mono focus:outline-none focus:border-indigo-500/60 transition-colors">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="flex items-center justify-end gap-2 px-6 py-4 border-t border-zinc-800/60">
+        <button @click="showCreateModal = false" class="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-all">
+          Cancel
+        </button>
+        <button @click="createCustomReport()" :disabled="creating"
+          class="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-150 glow-sm"
+          :class="creating ? 'bg-indigo-900/30 text-indigo-300/50 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-[0.98]'">
+          <template x-if="creating">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          </template>
+          <span x-text="creating ? 'Generating...' : 'Generate Report'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- SEND CONFIRMATION MODAL                                      -->
+  <!-- ============================================================ -->
+  <div x-show="showSendModal" class="fixed inset-0 z-50 flex items-center justify-center"
+    x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+    @click.self="showSendModal = false">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+    <div class="relative bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-sm scale-in p-6"
+      @click.stop>
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-emerald-950/40 flex items-center justify-center">
+          <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-zinc-100">Send Approved Report</h3>
+          <p class="text-xs text-zinc-500 mt-0.5">This will dispatch the report via email</p>
+        </div>
+      </div>
+      <div class="bg-zinc-800/50 rounded-lg px-4 py-3 mb-5 text-sm">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-zinc-400">Recipient:</span>
+          <span class="text-zinc-200 font-medium" x-text="selectedReport?.target_email || 'client@example.com'"></span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-zinc-400">Subject:</span>
+          <span class="text-zinc-200 font-medium text-right max-w-[200px] truncate" x-text="'Weekly Report — ' + (selectedReport?.client_name || '')"></span>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2">
+        <button @click="showSendModal = false" class="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-all">
+          Cancel
+        </button>
+        <button @click="confirmSend()" :disabled="sending"
+          class="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all duration-150 glow-emerald"
+          :class="sending ? 'bg-emerald-900/30 text-emerald-300/50 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-[0.98]'">
+          <template x-if="sending">
+            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+          </template>
+          <template x-if="!sending">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+          </template>
+          <span x-text="sending ? 'Sending...' : 'Confirm & Send'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- TOAST NOTIFICATION                                           -->
+  <!-- ============================================================ -->
+  <div x-show="toast.show" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-4"
+    class="fixed bottom-6 right-6 z-50 max-w-sm"
+  >
+    <div class="flex items-center gap-3 px-4 py-3 rounded-lg shadow-2xl backdrop-blur-md border"
+      :class="toast.type === 'success' ? 'bg-emerald-950/80 border-emerald-900/60 text-emerald-200' : 'bg-rose-950/80 border-rose-900/60 text-rose-200'"
+    >
+      <template x-if="toast.type === 'success'">
+        <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+      </template>
+      <template x-if="toast.type === 'error'">
+        <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+      </template>
+      <span class="text-sm" x-text="toast.message"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+function reviewQueue() {
+  return {
+    // ── State ────────────────────────────────────────────────────
+    reports: [],
+    selectedId: null,
+    selectedReport: null,
+    editContent: '',
+    dirty: false,
+    loading: false,
+    searchQuery: '',
+    activeFilter: 'all',
+    toast: { show: false, message: '', type: 'success' },
+    showCreateModal: false,
+    showSendModal: false,
+    creating: false,
+    sending: false,
+    form: {
+      clientName: '',
+      targetEmail: '',
+      period: '',
+      impressions: 0,
+      clicks: 0,
+      spend: 0,
+      conversions: 0,
+      revenue: 0,
+      prevImpressions: 0,
+      prevClicks: 0,
+      prevSpend: 0,
+      prevConversions: 0,
+      prevRevenue: 0,
+    },
+
+    // ── Computed ─────────────────────────────────────────────────
+    get filterTabs() {
+      const counts = { all: this.reports.length };
+      for (const r of this.reports) {
+        const key = r.status === 'DRAFT' ? 'draft' : r.status === 'IN_REVIEW' ? 'in_review' : r.status === 'APPROVED' ? 'approved' : 'sent';
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return [
+        { value: 'all',       label: 'All',       count: counts.all || 0 },
+        { value: 'draft',     label: 'Drafts',    count: counts.draft || 0 },
+        { value: 'in_review', label: 'In Review', count: counts.in_review || 0 },
+        { value: 'approved',  label: 'Approved',  count: counts.approved || 0 },
+      ];
+    },
+
+    get filteredReports() {
+      let list = this.reports;
+      // Status filter
+      if (this.activeFilter !== 'all') {
+        const statusMap = { draft: 'DRAFT', in_review: 'IN_REVIEW', approved: 'APPROVED' };
+        const target = statusMap[this.activeFilter];
+        list = list.filter(r => r.status === target);
+      }
+      // Search
+      if (this.searchQuery.trim()) {
+        const q = this.searchQuery.trim().toLowerCase();
+        list = list.filter(r => r.client_name.toLowerCase().includes(q) || r.period.toLowerCase().includes(q));
+      }
+      return list;
+    },
+
+    get kpiCards() {
+      const cur = this.selectedReport?.raw_metrics?.current || {};
+      const prev = this.selectedReport?.raw_metrics?.previous || {};
+      const self = this;
+
+      function kpi(label, key, icon, bg, format = 'float') {
+        const c = cur[key] || 0;
+        const p = prev[key] || 0;
+        const pct = p ? ((c - p) / p * 100) : 0;
+        return {
+          key, label, icon, bg,
+          currentVal: () => c,
+          format: (v) => format === 'int' ? Number(v).toLocaleString() : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          changeText: () => {
+            if (!p) return '—';
+            return (pct > 0 ? '+' : '') + pct.toFixed(1) + '%';
+          },
+          directionClass: () => {
+            if (!p) return 'text-zinc-600';
+            if (pct === 0) return 'text-zinc-500';
+            // For CPA and Spend, positive = bad (red); for ROAS and Conversions, positive = good (green)
+            const invert = (key === 'cpa' || key === 'spend');
+            const isGood = (pct > 0) !== invert;
+            return isGood ? 'text-emerald-400' : 'text-rose-400';
+          },
+        };
+      }
+
+      return [
+        kpi('Spend', 'spend', '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', 'bg-zinc-800/80'),
+        kpi('Conversions', 'conversions', '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>', 'bg-sky-950/50', 'int'),
+        kpi('CPA', 'cpa', '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>', 'bg-rose-950/40'),
+        kpi('ROAS', 'roas', '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>', 'bg-emerald-950/40'),
+      ];
+    },
+
+    get renderedPreview() {
+      try {
+        return marked.parse(this.editContent || '', { breaks: true });
+      } catch(e) {
+        return '<div class="text-rose-400 text-sm">⚠️ Error rendering Markdown</div>';
+      }
+    },
+
+    // ── Init ──────────────────────────────────────────────────────
+    async init() {
+      await this.loadReports();
+      // If the user arrived via ?demo=true (Watch Demo button), auto-generate reports
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('demo') === 'true' && this.reports.length === 0) {
+        await this.generateAll();
+      }
+    },
+
+    async loadReports() {
+      try {
+        const res = await fetch('/api/reports');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        this.reports = await res.json();
+        if (this.selectedId) {
+          const stillExists = this.reports.find(r => r.id === this.selectedId);
+          if (stillExists) await this.selectReport(this.selectedId);
+          else { this.selectedId = null; this.selectedReport = null; }
+        }
+      } catch(e) {
+        console.error('Failed to load reports', e);
+        this.showToast('Failed to load reports: ' + e.message, 'error');
+      }
+    },
+
+    // ── Generate ──────────────────────────────────────────────────
+    async generateAll() {
+      this.loading = true;
+      try {
+        const res = await fetch('/api/reports/generate-all', { method: 'POST' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        this.reports = data.reports;
+        if (data.reports.length > 0) {
+          await this.selectReport(data.reports[0].id);
+        }
+        this.showToast('Generated ' + data.generated + ' reports successfully', 'success');
+      } catch(e) {
+        console.error('Generation failed', e);
+        this.showToast('Generation failed: ' + e.message, 'error');
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // ── Select ────────────────────────────────────────────────────
+    async selectReport(id) {
+      if (this.selectedId === id) return; // Already selected
+      this.selectedId = id;
+      this.selectedReport = null; // Clear while loading
+      try {
+        const res = await fetch('/api/reports/' + id);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        this.selectedReport = data;
+        this.editContent = data.markdown_content;
+        this.dirty = false;
+      } catch(e) {
+        console.error('Failed to load report', e);
+        this.showToast('Failed to load report: ' + e.message, 'error');
+        this.selectedId = null;
+      }
+    },
+
+    // ── Edit ──────────────────────────────────────────────────────
+    onEdit() {
+      this.dirty = this.editContent !== this.selectedReport?.markdown_content;
+    },
+
+    async saveDraft() {
+      if (!this.selectedReport || !this.dirty) return;
+      const originalContent = this.selectedReport.markdown_content;
+      this.selectedReport.markdown_content = this.editContent;
+      try {
+        const res = await fetch('/api/reports/' + this.selectedReport.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ markdown_content: this.editContent }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const updated = await res.json();
+        this.selectedReport.status = updated.status;
+        this.selectedReport.updated_at = updated.updated_at;
+        this.dirty = false;
+        // Update sidebar
+        const item = this.reports.find(r => r.id === this.selectedReport.id);
+        if (item) item.status = updated.status;
+        this.showToast('Draft saved', 'success');
+      } catch(e) {
+        console.error('Save failed', e);
+        this.selectedReport.markdown_content = originalContent;
+        this.showToast('Save failed: ' + e.message, 'error');
+      }
+    },
+
+    // ── Approve ───────────────────────────────────────────────────
+    async approveReport() {
+      if (!this.selectedReport) return;
+      if (this.selectedReport.status === 'APPROVED' || this.selectedReport.status === 'SENT') return;
+      if (this.dirty) await this.saveDraft();
+      try {
+        const res = await fetch('/api/reports/' + this.selectedReport.id + '/approve', { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          this.showToast(err.detail || 'Failed to approve', 'error');
+          return;
+        }
+        const updated = await res.json();
+        this.selectedReport.status = 'APPROVED';
+        this.selectedReport.updated_at = updated.updated_at;
+        // Update status in sidebar list so filter tab counts stay correct
+        const item = this.reports.find(r => r.id === this.selectedReport.id);
+        if (item) item.status = 'APPROVED';
+        this.showToast('Report approved ✓', 'success');
+      } catch(e) {
+        console.error('Approve failed', e);
+        this.showToast('Approve failed: ' + e.message, 'error');
+      }
+    },
+
+    // ── Approve & Send (combined flow) ──────────────────────────
+    async approveAndSend() {
+      if (!this.selectedReport || this.selectedReport.status === 'SENT') return;
+      // Auto-approve if not yet approved
+      if (this.selectedReport.status !== 'APPROVED') {
+        if (this.dirty) await this.saveDraft();
+        const res = await fetch('/api/reports/' + this.selectedReport.id + '/approve', { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          this.showToast(err.detail || 'Failed to approve', 'error');
+          return;
+        }
+        const updated = await res.json();
+        this.selectedReport.status = 'APPROVED';
+        this.selectedReport.updated_at = updated.updated_at;
+        const item = this.reports.find(r => r.id === this.selectedReport.id);
+        if (item) item.status = 'APPROVED';
+      }
+      // Open send confirmation modal
+      this.showSendModal = true;
+    },
+
+    // ── Create Custom Report ──────────────────────────────────────
+    async createCustomReport() {
+      if (!this.form.clientName.trim() || !this.form.period.trim()) {
+        this.showToast('Client name and period are required', 'error');
+        return;
+      }
+      this.creating = true;
+      try {
+        const body = {
+          client_name: this.form.clientName.trim(),
+          period: this.form.period.trim(),
+          target_email: this.form.targetEmail.trim() || null,
+          impressions: parseInt(this.form.impressions) || 0,
+          clicks: parseInt(this.form.clicks) || 0,
+          spend: parseFloat(this.form.spend) || 0,
+          conversions: parseInt(this.form.conversions) || 0,
+          revenue: parseFloat(this.form.revenue) || 0,
+          prev_impressions: parseInt(this.form.prevImpressions) || 0,
+          prev_clicks: parseInt(this.form.prevClicks) || 0,
+          prev_spend: parseFloat(this.form.prevSpend) || 0,
+          prev_conversions: parseInt(this.form.prevConversions) || 0,
+          prev_revenue: parseFloat(this.form.prevRevenue) || 0,
+        };
+        const res = await fetch('/api/clients/custom-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          this.showToast(err.detail || 'Failed to create report', 'error');
+          return;
+        }
+        this.showCreateModal = false;
+        // Reload reports and select the new one
+        await this.loadReports();
+        const created = await res.json();
+        await this.selectReport(created.id);
+        this.showToast('Custom report created', 'success');
+        // Reset form
+        this.form = { clientName: '', targetEmail: '', period: '', impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, prevImpressions: 0, prevClicks: 0, prevSpend: 0, prevConversions: 0, prevRevenue: 0 };
+      } catch(e) {
+        console.error('Create custom report failed', e);
+        this.showToast('Failed to create report: ' + e.message, 'error');
+      } finally {
+        this.creating = false;
+      }
+    },
+
+    // ── Send Report (confirmation + dispatch) ───────────────────
+    async confirmSend() {
+      if (!this.selectedReport) return;
+      this.sending = true;
+      try {
+        const res = await fetch('/api/reports/' + this.selectedReport.id + '/send', { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          this.showToast(err.detail || 'Failed to send', 'error');
+          return;
+        }
+        const data = await res.json();
+        this.selectedReport.status = 'SENT';
+        this.selectedReport.sent_at = data.sent_at;
+        // Update sidebar
+        const item = this.reports.find(r => r.id === this.selectedReport.id);
+        if (item) item.status = 'SENT';
+        this.showSendModal = false;
+        this.showToast('Report sent to ' + data.sent_to, 'success');
+      } catch(e) {
+        console.error('Send failed', e);
+        this.showToast('Send failed: ' + e.message, 'error');
+      } finally {
+        this.sending = false;
+      }
+    },
+
+    // ── Helpers ───────────────────────────────────────────────────
+    displayName(name) {
+      if (!name) return '';
+      return name.split(' (')[0];
+    },
+
+    timeAgo(isoStr) {
+      if (!isoStr) return '';
+      // Strip any +HH:MM or -HH:00 offset before appending Z.
+      const clean = isoStr.replace(/[+-]\d{2}:\d{2}$/, '');
+      const d = new Date(clean.endsWith('Z') ? clean : clean + 'Z');
+      const diff = Date.now() - d.getTime();
+      const mins = Math.floor(Math.abs(diff) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return hours + 'h ago';
+      return Math.floor(hours / 24) + 'd ago';
+    },
+
+    formatSeverity(sev) {
+      if (!sev || typeof sev !== 'string') return '';
+      if (sev.includes('.')) return sev.split('.').pop();
+      return sev;
+    },
+
+    showToast(message, type = 'success') {
+      this.toast = { show: true, message, type };
+      clearTimeout(this._toastTimer);
+      this._toastTimer = setTimeout(() => { this.toast.show = false; }, 3500);
+    },
+  };
+}
+</script>
+</body>
+</html>

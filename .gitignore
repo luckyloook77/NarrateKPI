@@ -1,0 +1,49 @@
+# ── Secrets & Environment ──────────────────────────────────────────
+.env
+*.env
+!.env.example
+
+# ── Python Bytecode & Cache ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
+
+# ── Virtual Environments ────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+
+# ── Local Data & Runtime Artifacts ──────────────────────────────────
+data/*
+!data/.gitkeep
+reports_store.json
+email_output/*
+!email_output/.gitkeep
+reports_output/*
+!reports_output/.gitkeep
+
+# ── IDE & Editor Junk ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS Artifacts ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+nul
+
+# ── Freebuff Desktop ────────────────────────────────────────────────
+.freebuff/
+
+# ── Docker ──────────────────────────────────────────────────────────
+
+# ── Build Artifacts ─────────────────────────────────────────────────
+*.egg-info/
+dist/
+build/

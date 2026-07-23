@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────
+#  NarrateKPI — docker-compose.yml
+#  Local development with volume-mapped store persistence.
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  narratekpi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: narratekpi
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist the JSON store on the host so data survives container restarts.
+      - ./data:/data
+      # Mount entire project for hot-reload during development.
+      - .:/app
+    environment:
+      # ── App settings ─────────────────────────────────────────────
+      - NARRATEKPI_STORE_PATH=/data/reports_store.json
+      # ── Optional: LLM API keys (leave unset for dry-run mode) ────
+      # - OPENAI_API_KEY=sk-...
+      # - GEMINI_API_KEY=...
+      # - DEEPSEEK_API_KEY=...
+      # ── Optional: Email ──────────────────────────────────────────
+      # - RESEND_API_KEY=re_...
+      # - DEFAULT_FROM_EMAIL=reports@youragency.com
+    restart: unless-stopped

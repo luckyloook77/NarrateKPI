@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NarrateKPI — Weekly Performance Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0 }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; background:#f3f4f6; color:#111827; }
+  .app { max-width:1280px; margin:0 auto; padding:24px 32px; }
+
+  /* Header */
+  .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
+  .logo { display:flex; align-items:center; gap:12px; }
+  .logo-icon { width:40px; height:40px; background:linear-gradient(135deg,#6366f1,#8b5cf6); border-radius:10px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:18px; }
+  .logo-text { font-size:20px; font-weight:700; }
+  .logo-sub { font-size:12px; color:#6b7280; margin-top:-2px; }
+  .badge { display:inline-flex; align-items:center; gap:4px; padding:4px 12px; border-radius:9999px; font-size:11px; font-weight:600; background:#e0e7ff; color:#4338ca; }
+
+  /* Tabs */
+  .tab-bar { display:flex; gap:4px; background:#fff; border-radius:12px; padding:4px; margin-bottom:20px; border:1px solid #e5e7eb; overflow-x:auto; }
+  .tab-btn { display:flex; align-items:center; gap:8px; padding:10px 18px; border:none; background:transparent; border-radius:8px; cursor:pointer; font-size:13px; font-weight:500; color:#6b7280; white-space:nowrap; transition:all 0.15s ease; }
+  .tab-btn:hover { background:#f3f4f6; color:#374151; }
+  .tab-btn.active { background:#6366f1; color:#fff; box-shadow:0 2px 8px rgba(99,102,241,0.3); }
+  .tab-indicator { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .tab-indicator.status-critical { background:#ef4444; }
+  .tab-indicator.status-warning { background:#f59e0b; }
+  .tab-indicator.status-positive { background:#22c55e; }
+  .tab-indicator.status-neutral { background:#9ca3af; }
+  .tab-count { display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:9999px; font-size:11px; font-weight:600; padding:0 6px; background:rgba(255,255,255,0.2); }
+  .tab-btn.active .tab-count { background:rgba(255,255,255,0.25); }
+
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; animation:fadeIn 0.2s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  /* Report header */
+  .report-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px; gap:16px; }
+  .report-client { font-size:18px; font-weight:700; }
+  .report-meta { display:flex; align-items:center; gap:6px; font-size:13px; color:#6b7280; margin-top:4px; }
+  .meta-sep { color:#d1d5db; }
+  .anomaly-count { display:flex; align-items:center; gap:8px; padding:8px 20px; border-radius:10px; font-size:13px; font-weight:500; }
+  .anomaly-count.status-critical { background:#fef2f2; color:#dc2626; }
+  .anomaly-count.status-warning { background:#fffbeb; color:#d97706; }
+  .anomaly-count.status-positive { background:#f0fdf4; color:#16a34a; }
+  .anomaly-count.status-neutral { background:#f9fafb; color:#6b7280; }
+  .anomaly-num { font-size:24px; font-weight:700; }
+
+  /* Cards */
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:20px; }
+  .card-title { font-size:14px; font-weight:600; margin-bottom:14px; color:#374151; }
+
+  /* Markdown body */
+  .markdown-body { font-size:13px; line-height:1.7; color:#374151; }
+  .markdown-body h2 { font-size:16px; font-weight:700; margin:20px 0 10px; color:#111827; }
+  .markdown-body h3 { font-size:14px; font-weight:600; margin:14px 0 8px; color:#1f2937; }
+  .markdown-body p { margin-bottom:10px; }
+  .markdown-body hr { margin:16px 0; border:none; border-top:2px solid #e5e7eb; }
+  .markdown-body strong { color:#111827; }
+  .markdown-body blockquote { border-left:3px solid #6366f1; padding:8px 14px; margin:10px 0; background:#f8f8ff; border-radius:0 6px 6px 0; font-size:12px; color:#6b7280; }
+  .markdown-body code { background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:12px; color:#6366f1; }
+
+  /* Responsive */
+  @media (max-width:800px) { .app { padding:16px; } .tab-btn { padding:8px 12px; font-size:12px; } }
+  @media (max-width:900px) { .report-header { flex-direction:column; } div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns:1fr !important; } }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#d1d5db; border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:#9ca3af; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-icon">NK</div>
+      <div>
+        <div class="logo-text">NarrateKPI</div>
+        <div class="logo-sub">AI-Driven Agency Report Automation</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="badge">📊 Week 2026-W29</span>
+      <span class="badge">🔬 Dry-Run Mode</span>
+    </div>
+  </div>
+
+  <div class="tab-bar"><button class="tab-btn active" onclick="switchTab(0)" data-index="0"><span class="tab-indicator status-critical"></span>Urban Threads<span class="tab-count">3</span></button><button class="tab-btn" onclick="switchTab(1)" data-index="1"><span class="tab-indicator status-positive"></span>DataFlow Analytics<span class="tab-count">2</span></button><button class="tab-btn" onclick="switchTab(2)" data-index="2"><span class="tab-indicator "></span>GreenLeaf Landscaping<span class="tab-count">0</span></button></div>
+  
+        <div class="tab-panel active" id="panel-0">
+            <div class="report-header">
+                <div>
+                    <div class="report-client">Urban Threads (E-Commerce)</div>
+                    <div class="report-meta">
+                        <span>📅 2026-W29 → 2026-W28</span>
+                        <span class="meta-sep">·</span>
+                        <span>🆔 acc_shopify_042</span>
+                    </div>
+                </div>
+                <div class="anomaly-count status-critical">
+                    <span class="anomaly-num">3</span>
+                    anomalies
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+                <div class="card">
+                    <div class="card-title">📈 Metrics Comparison</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+            <tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.05em">
+                <th style="text-align:left;padding:8px 12px">Metric</th>
+                <th style="text-align:right;padding:8px 12px">Current</th>
+                <th style="text-align:right;padding:8px 12px">Previous</th>
+                <th style="text-align:right;padding:8px 12px">Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+            <td style="font-weight:500">Impressions</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">185,000</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">210,000</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -11.90%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Clicks</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">4,200</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">5,100</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -17.65%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Spend ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">8,750.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">6,200.00</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +41.13%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Conversions</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">85</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">124</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -31.45%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Revenue ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">21,000.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">24,800.00</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -15.32%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CTR (%)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2.27</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2.43</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -6.52%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CPC ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2.08</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">1.22</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +71.37%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CPA ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">102.94</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">50.00</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +105.88%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">ROAS (×)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2.40</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">4.00</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -40.00%
+            </td>
+        </tr>
+        </tbody>
+    </table>
+                </div>
+                <div class="card">
+                    <div class="card-title">🔍 Anomaly Breakdown</div>
+                    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:14px">CPA</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;
+        padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;
+        background:#fef2f2;color:#dc2626">🚨 AnomalySeverity.CRITICAL</span>
+        </div>
+        <div style="display:flex;gap:20px;margin-bottom:8px;font-size:12px;color:#6b7280">
+            <span><strong>102.94</strong> <span style="color:#9ca3af">(current)</span></span>
+            <span><strong>50.0</strong> <span style="color:#9ca3af">(previous)</span></span>
+            <span style="color:#ef4444;font-weight:600">+105.88%</span>
+        </div>
+        <div style="font-size:13px;color:#374151;line-height:1.5">🚨 CPA spiked 105.9% (50.00 → 102.94) — costs are rising sharply; review ad sets and keywords.</div>
+    </div>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:14px">ROAS</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;
+        padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;
+        background:#fef2f2;color:#dc2626">🚨 AnomalySeverity.CRITICAL</span>
+        </div>
+        <div style="display:flex;gap:20px;margin-bottom:8px;font-size:12px;color:#6b7280">
+            <span><strong>2.4</strong> <span style="color:#9ca3af">(current)</span></span>
+            <span><strong>4.0</strong> <span style="color:#9ca3af">(previous)</span></span>
+            <span style="color:#22c55e;font-weight:600">-40.00%</span>
+        </div>
+        <div style="font-size:13px;color:#374151;line-height:1.5">🚨 ROAS dropped -40.0% (4.00 → 2.40) — revenue efficiency is falling; investigate campaign performance.</div>
+    </div>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:14px">Spend+Conversions</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;
+        padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;
+        background:#fef2f2;color:#dc2626">🚨 AnomalySeverity.CRITICAL</span>
+        </div>
+        <div style="display:flex;gap:20px;margin-bottom:8px;font-size:12px;color:#6b7280">
+            <span><strong>8750.0</strong> <span style="color:#9ca3af">(current)</span></span>
+            <span><strong>6200.0</strong> <span style="color:#9ca3af">(previous)</span></span>
+            <span style="color:#ef4444;font-weight:600">+41.13%</span>
+        </div>
+        <div style="font-size:13px;color:#374151;line-height:1.5">🚨 Spend surged 41.1% while Conversions dropped — budget is increasing without results; pause under-performing ad sets.</div>
+    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:24px">
+                <div class="card-title">📝 Generated Report</div>
+                <div class="markdown-body"><p><h2>📊 Executive Summary</h2></p><p>Your account showed <strong>mixed performance</strong> during <strong>2026-W29</strong> with 3 critical issues detected. Total spend was <strong>$8,750.00</strong> (vs $6,200.00 the prior week), generating <strong>85 conversions</strong> and <strong>$21,000.00 in revenue</strong>. </p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p><h2>🔍 Key Insights &amp; What Happened</h2></p><p><h3>🚨 CPA</h3></p><p><strong>🚨 Critical: CPA</strong> — 🚨 CPA spiked 105.9% (50.00 → 102.94) — costs are rising sharply; review ad sets and keywords. This increase in cost per acquisition may be driven by higher auction competition, audience saturation, or less efficient ad placements. We recommend reviewing the ad-set-level cost data to identify the source.</p><p><h3>🚨 ROAS</h3></p><p><strong>🚨 Critical: ROAS</strong> — 🚨 ROAS dropped -40.0% (4.00 → 2.40) — revenue efficiency is falling; investigate campaign performance. A declining ROAS (return on ad spend) suggests the revenue generated per dollar invested is shrinking. This could indicate creative fatigue, increased competition, or a shift in conversion behaviour lower in the funnel.</p><p><h3>🚨 Spend+Conversions</h3></p><p><strong>🚨 Critical: Spend+Conversions</strong> — 🚨 Spend surged 41.1% while Conversions dropped — budget is increasing without results; pause under-performing ad sets. Budget is increasing without proportional conversion growth, indicating inefficient spend. We recommend pausing or reducing budget on under-performing ad sets and reallocating to higher-efficiency campaigns.</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p><h2>🚀 Action Plan for Next Week</h2></p><p><strong>1. Audit &amp; Optimise Under-Performing Ad Sets</strong></p><p>The CPA spike and inefficient spend-growth pattern indicate that some ad sets are driving up costs without proportional returns. Our team will conduct a campaign-level audit to identify the specific ad sets with the highest CPA and lowest conversion rates. We will pause or reduce budget on bottom-quartile performers and reallocate spend to ad sets with healthy efficiency metrics. Expected outcome: CPA reduction of 15–25% and improved overall ROAS within the next reporting period.<br><strong>2. Implement Bid &amp; Budget Adjustments</strong></p><p>Based on the efficiency signals identified, our team will adjust bid strategies to prioritise high-converting audience segments. We will implement dayparting adjustments to concentrate spend during peak conversion hours and apply audience layers to exclude low-intent traffic. Expected outcome: improved cost efficiency and higher conversion rates.<br><strong>3. Set Up Automated Budget Caps &amp; Alerts</strong></p><p>To prevent similar cost surges in the future, our team will configure automated budget caps and cost-per-result alert rules at the campaign level. This ensures that if CPA or spend efficiency breaches safe thresholds mid-week, the system will automatically reduce spend until our team can investigate. Expected outcome: proactive cost control and reduced risk of budget overrun.</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p>&gt; <em>This report was generated in dry-run mode. No LLM API was called.</em></p></div>
+            </div>
+
+            <details style="margin-bottom:24px">
+                <summary style="cursor:pointer;font-size:13px;color:#6b7280;padding:8px 0;font-weight:500">
+                    📄 View Raw JSON Payload
+                </summary>
+                <pre style="background:#1e293b;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:12px;margin-top:8px"><code>{
+  "account_id": "acc_shopify_042",
+  "client_name": "Urban Threads (E-Commerce)",
+  "period_current": "2026-W29",
+  "period_previous": "2026-W28",
+  "total_anomalies_found": 3,
+  "anomalies": [
+    {
+      "metric_name": "CPA",
+      "current_value": 102.94,
+      "previous_value": 50.0,
+      "percent_change": 105.88,
+      "absolute_change": 52.94,
+      "direction": "INCREASED",
+      "severity": "CRITICAL",
+      "message": "🚨 CPA spiked 105.9% (50.00 → 102.94) — costs are rising sharply; review ad sets and keywords."
+    },
+    {
+      "metric_name": "ROAS",
+      "current_value": 2.4,
+      "previous_value": 4.0,
+      "percent_change": -40.0,
+      "absolute_change": -1.6,
+      "direction": "DECREASED",
+      "severity": "CRITICAL",
+      "message": "🚨 ROAS dropped -40.0% (4.00 → 2.40) — revenue efficiency is falling; investigate campaign performance."
+    },
+    {
+      "metric_name": "Spend+Conversions",
+      "current_value": 8750.0,
+      "previous_value": 6200.0,
+      "percent_change": 41.13,
+      "absolute_change": 2550.0,
+      "direction": "INCREASED",
+      "severity": "CRITICAL",
+      "message": "🚨 Spend surged 41.1% while Conversions dropped — budget is increasing without results; pause under-performing ad sets."
+    }
+  ],
+  "current_metrics": {
+    "impressions": 185000,
+    "clicks": 4200,
+    "spend": 8750.0,
+    "conversions": 85,
+    "revenue": 21000.0,
+    "ctr": 2.2703,
+    "cpc": 2.0833,
+    "cpa": 102.9412,
+    "roas": 2.4
+  },
+  "previous_metrics": {
+    "impressions": 210000,
+    "clicks": 5100,
+    "spend": 6200.0,
+    "conversions": 124,
+    "revenue": 24800.0,
+    "ctr": 2.4286,
+    "cpc": 1.2157,
+    "cpa": 50.0,
+    "roas": 4.0
+  }
+}</code></pre>
+            </details>
+        </div>
+        <div class="tab-panel" id="panel-1">
+            <div class="report-header">
+                <div>
+                    <div class="report-client">DataFlow Analytics (B2B SaaS)</div>
+                    <div class="report-meta">
+                        <span>📅 2026-W29 → 2026-W28</span>
+                        <span class="meta-sep">·</span>
+                        <span>🆔 acc_saas_119</span>
+                    </div>
+                </div>
+                <div class="anomaly-count status-positive">
+                    <span class="anomaly-num">2</span>
+                    anomalies
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+                <div class="card">
+                    <div class="card-title">📈 Metrics Comparison</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+            <tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.05em">
+                <th style="text-align:left;padding:8px 12px">Metric</th>
+                <th style="text-align:right;padding:8px 12px">Current</th>
+                <th style="text-align:right;padding:8px 12px">Previous</th>
+                <th style="text-align:right;padding:8px 12px">Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+            <td style="font-weight:500">Impressions</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">95,000</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">102,000</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -6.86%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Clicks</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3,800</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3,400</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +11.76%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Spend ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">12,500.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">14,200.00</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -11.97%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Conversions</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">210</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">165</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +27.27%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Revenue ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">187,500.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">127,800.00</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +46.71%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CTR (%)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">4.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3.33</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +20.00%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CPC ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3.29</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">4.18</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -21.24%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CPA ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">59.52</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">86.06</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -30.84%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">ROAS (×)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">15.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">9.00</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +66.67%
+            </td>
+        </tr>
+        </tbody>
+    </table>
+                </div>
+                <div class="card">
+                    <div class="card-title">🔍 Anomaly Breakdown</div>
+                    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:14px">CPA</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;
+        padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;
+        background:#f0fdf4;color:#16a34a">✅ AnomalySeverity.POSITIVE</span>
+        </div>
+        <div style="display:flex;gap:20px;margin-bottom:8px;font-size:12px;color:#6b7280">
+            <span><strong>59.52</strong> <span style="color:#9ca3af">(current)</span></span>
+            <span><strong>86.06</strong> <span style="color:#9ca3af">(previous)</span></span>
+            <span style="color:#22c55e;font-weight:600">-30.84%</span>
+        </div>
+        <div style="font-size:13px;color:#374151;line-height:1.5">✅ CPA dropped -30.8% (86.06 → 59.52) — costs are declining; identify winning placements.</div>
+    </div>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:600;font-size:14px">ROAS</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;
+        padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:600;
+        background:#f0fdf4;color:#16a34a">✅ AnomalySeverity.POSITIVE</span>
+        </div>
+        <div style="display:flex;gap:20px;margin-bottom:8px;font-size:12px;color:#6b7280">
+            <span><strong>15.0</strong> <span style="color:#9ca3af">(current)</span></span>
+            <span><strong>9.0</strong> <span style="color:#9ca3af">(previous)</span></span>
+            <span style="color:#ef4444;font-weight:600">+66.67%</span>
+        </div>
+        <div style="font-size:13px;color:#374151;line-height:1.5">✅ ROAS surged 66.7% (9.00 → 15.00) — excellent revenue efficiency; scale winning campaigns.</div>
+    </div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:24px">
+                <div class="card-title">📝 Generated Report</div>
+                <div class="markdown-body"><p><h2>📊 Executive Summary</h2></p><p>Your account showed <strong>strong performance</strong> during <strong>2026-W29</strong> with 2 positive signals detected. Total spend was <strong>$12,500.00</strong> (vs $14,200.00 the prior week), generating <strong>210 conversions</strong> and <strong>$187,500.00 in revenue</strong>. </p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p><h2>🔍 Key Insights &amp; What Happened</h2></p><p><h3>✅ CPA</h3></p><p><strong>✅ Positive: CPA</strong> — ✅ CPA dropped -30.8% (86.06 → 59.52) — costs are declining; identify winning placements. This decline in cost per acquisition is a strong efficiency signal, likely driven by improved audience targeting, creative resonance, or favourable auction dynamics. We should identify and scale the best performers.</p><p><h3>✅ ROAS</h3></p><p><strong>✅ Positive: ROAS</strong> — ✅ ROAS surged 66.7% (9.00 → 15.00) — excellent revenue efficiency; scale winning campaigns. This return-on-ad-spend improvement means every dollar invested is generating more revenue. Strong creative performance, better audience matching, or favourable seasonality may be contributing.</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p><h2>🚀 Action Plan for Next Week</h2></p><p><strong>1. Audit &amp; Optimise Under-Performing Ad Sets</strong></p><p>The CPA spike and inefficient spend-growth pattern indicate that some ad sets are driving up costs without proportional returns. Our team will conduct a campaign-level audit to identify the specific ad sets with the highest CPA and lowest conversion rates. We will pause or reduce budget on bottom-quartile performers and reallocate spend to ad sets with healthy efficiency metrics. Expected outcome: CPA reduction of 15–25% and improved overall ROAS within the next reporting period.<br><strong>2. Implement Bid &amp; Budget Adjustments</strong></p><p>Based on the efficiency signals identified, our team will adjust bid strategies to prioritise high-converting audience segments. We will implement dayparting adjustments to concentrate spend during peak conversion hours and apply audience layers to exclude low-intent traffic. Expected outcome: improved cost efficiency and higher conversion rates.<br><strong>3. Document &amp; Replicate Winning Patterns</strong></p><p>Our team will document the creative, targeting, and bidding elements that drove the positive performance this week. These insights will be used to inform campaign structures for upcoming launches and shared with the broader account team. Expected outcome: institutionalised best practices for sustained efficiency gains.</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p>&gt; <em>This report was generated in dry-run mode. No LLM API was called.</em></p></div>
+            </div>
+
+            <details style="margin-bottom:24px">
+                <summary style="cursor:pointer;font-size:13px;color:#6b7280;padding:8px 0;font-weight:500">
+                    📄 View Raw JSON Payload
+                </summary>
+                <pre style="background:#1e293b;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:12px;margin-top:8px"><code>{
+  "account_id": "acc_saas_119",
+  "client_name": "DataFlow Analytics (B2B SaaS)",
+  "period_current": "2026-W29",
+  "period_previous": "2026-W28",
+  "total_anomalies_found": 2,
+  "anomalies": [
+    {
+      "metric_name": "CPA",
+      "current_value": 59.52,
+      "previous_value": 86.06,
+      "percent_change": -30.84,
+      "absolute_change": -26.54,
+      "direction": "DECREASED",
+      "severity": "POSITIVE",
+      "message": "✅ CPA dropped -30.8% (86.06 → 59.52) — costs are declining; identify winning placements."
+    },
+    {
+      "metric_name": "ROAS",
+      "current_value": 15.0,
+      "previous_value": 9.0,
+      "percent_change": 66.67,
+      "absolute_change": 6.0,
+      "direction": "INCREASED",
+      "severity": "POSITIVE",
+      "message": "✅ ROAS surged 66.7% (9.00 → 15.00) — excellent revenue efficiency; scale winning campaigns."
+    }
+  ],
+  "current_metrics": {
+    "impressions": 95000,
+    "clicks": 3800,
+    "spend": 12500.0,
+    "conversions": 210,
+    "revenue": 187500.0,
+    "ctr": 4.0,
+    "cpc": 3.2895,
+    "cpa": 59.5238,
+    "roas": 15.0
+  },
+  "previous_metrics": {
+    "impressions": 102000,
+    "clicks": 3400,
+    "spend": 14200.0,
+    "conversions": 165,
+    "revenue": 127800.0,
+    "ctr": 3.3333,
+    "cpc": 4.1765,
+    "cpa": 86.0606,
+    "roas": 9.0
+  }
+}</code></pre>
+            </details>
+        </div>
+        <div class="tab-panel" id="panel-2">
+            <div class="report-header">
+                <div>
+                    <div class="report-client">GreenLeaf Landscaping (Stable)</div>
+                    <div class="report-meta">
+                        <span>📅 2026-W29 → 2026-W28</span>
+                        <span class="meta-sep">·</span>
+                        <span>🆔 acc_stable_237</span>
+                    </div>
+                </div>
+                <div class="anomaly-count ">
+                    <span class="anomaly-num">0</span>
+                    anomalies
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+                <div class="card">
+                    <div class="card-title">📈 Metrics Comparison</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+            <tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.05em">
+                <th style="text-align:left;padding:8px 12px">Metric</th>
+                <th style="text-align:right;padding:8px 12px">Current</th>
+                <th style="text-align:right;padding:8px 12px">Previous</th>
+                <th style="text-align:right;padding:8px 12px">Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+            <td style="font-weight:500">Impressions</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">55,000</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">58,000</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -5.17%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Clicks</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2,100</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2,050</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +2.44%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Spend ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3,400.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3,250.00</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +4.62%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Conversions</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">68</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">71</td>
+            <td style="text-align:right;color:#22c55e;font-weight:600;font-variant-numeric:tabular-nums">
+                ▼ -4.23%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">Revenue ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">8,500.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">8,100.00</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +4.94%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CTR (%)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3.82</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">3.53</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +8.03%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CPC ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">1.62</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">1.59</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +2.12%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">CPA ($)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">50.00</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">45.77</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +9.23%
+            </td>
+        </tr><tr>
+            <td style="font-weight:500">ROAS (×)</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2.50</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">2.49</td>
+            <td style="text-align:right;color:#ef4444;font-weight:600;font-variant-numeric:tabular-nums">
+                ▲ +0.31%
+            </td>
+        </tr>
+        </tbody>
+    </table>
+                </div>
+                <div class="card">
+                    <div class="card-title">🔍 Anomaly Breakdown</div>
+                    <div style="text-align:center;padding:24px;color:#6b7280;font-size:14px;background:#f9fafb;border-radius:10px;border:1px dashed #d1d5db">📊 No anomalies detected — account is stable.</div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:24px">
+                <div class="card-title">📝 Generated Report</div>
+                <div class="markdown-body"><p><h2>📊 Executive Summary</h2></p><p>Your account remained stable during <strong>2026-W29</strong> with no metrics breaching our alert thresholds. Total spend was <strong>$3,400.00</strong> (vs $3,250.00 the prior week), generating <strong>68 conversions</strong> and <strong>$8,500.00 in revenue</strong>. Performance is within expected ranges, and no immediate action is required.</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p><h2>🔍 Key Insights &amp; What Happened</h2></p><p><h3>📊 Notable Metric Movements</h3></p><p>While no anomalies were triggered, the following metrics moved materially:</p><p>- Impressions decreased by 5.2%<br>- CTR increased by 8.0%<br>- CPA increased by 9.2%</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p><h2>🚀 Action Plan for Next Week</h2></p><p><strong>1. Maintain Current Strategy with Light Optimisation</strong></p><p>With no critical anomalies detected, the current campaign strategy is performing within expected parameters. Our team will continue monitoring key metrics and perform minor bid adjustments to capture incremental efficiency gains. Expected outcome: sustained performance with gradual improvement.<br><strong>2. Explore New Audience &amp; Creative Opportunities</strong></p><p>With stable account performance, we have capacity to test new growth levers. Our team will launch a small-scale budget test (10% of total spend) targeting a new lookalike audience segment and test 2 new creative concepts. Expected outcome: identify new scalable acquisition channels without risking core campaign performance.<br><strong>3. Prepare for Next-Week Campaign Calendar</strong></p><p>Our team will align with you on upcoming promotions, product launches, or seasonal events so we can adjust campaign calendars, budgets, and creative accordingly. Proactive planning ensures we capture demand spikes while maintaining cost discipline. Expected outcome: campaign readiness and optimised resource allocation.</p><p><hr style='border:none;border-top:2px solid #e5e7eb;margin:16px 0'></p><p>&gt; <em>This report was generated in dry-run mode. No LLM API was called.</em></p></div>
+            </div>
+
+            <details style="margin-bottom:24px">
+                <summary style="cursor:pointer;font-size:13px;color:#6b7280;padding:8px 0;font-weight:500">
+                    📄 View Raw JSON Payload
+                </summary>
+                <pre style="background:#1e293b;color:#e2e8f0;padding:16px;border-radius:8px;overflow:auto;font-size:12px;margin-top:8px"><code>{
+  "account_id": "acc_stable_237",
+  "client_name": "GreenLeaf Landscaping (Stable)",
+  "period_current": "2026-W29",
+  "period_previous": "2026-W28",
+  "total_anomalies_found": 0,
+  "anomalies": [],
+  "current_metrics": {
+    "impressions": 55000,
+    "clicks": 2100,
+    "spend": 3400.0,
+    "conversions": 68,
+    "revenue": 8500.0,
+    "ctr": 3.8182,
+    "cpc": 1.619,
+    "cpa": 50.0,
+    "roas": 2.5
+  },
+  "previous_metrics": {
+    "impressions": 58000,
+    "clicks": 2050,
+    "spend": 3250.0,
+    "conversions": 71,
+    "revenue": 8100.0,
+    "ctr": 3.5345,
+    "cpc": 1.5854,
+    "cpa": 45.7746,
+    "roas": 2.4923
+  }
+}</code></pre>
+            </details>
+        </div>
+</div>
+
+<script>
+function switchTab(idx) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab-btn[data-index="${idx}"]`).classList.add('active');
+  document.getElementById(`panel-${idx}`).classList.add('active');
+}
+
+// Keyboard shortcuts for tabs.
+document.addEventListener('keydown', (e) => {
+  const num = parseInt(e.key);
+  if (num >= 1 && num <= 3) {
+    switchTab(num - 1);
+  }
+});
+</script>
+</body>
+</html>
