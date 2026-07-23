@@ -26,6 +26,13 @@ from typing import Any, Dict, Optional
 from prompts import SYSTEM_PROMPT, build_user_prompt, generate_mock_report
 
 
+class LLMTimeoutError(Exception):
+    """Raised when the LLM API call exceeds the configured timeout.
+
+    Caught by API handlers to return ``HTTP 504 Gateway Timeout``.
+    """
+
+
 # ──────────────────────────────────────────────────────────────────────
 #  Configuration
 # ──────────────────────────────────────────────────────────────────────
@@ -94,7 +101,7 @@ def _call_nvidia(
     is not installed.
     """
     try:
-        from openai import OpenAI
+        from openai import OpenAI  # noqa: F811
     except ImportError:
         print(
             "[NarrateKPI] ⚠️  openai SDK not installed. "
@@ -115,6 +122,7 @@ def _call_nvidia(
     client = OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=api_key,
+        timeout=25.0,
     )
 
     response = client.chat.completions.create(
@@ -125,6 +133,7 @@ def _call_nvidia(
         ],
         max_tokens=max_tokens,
         temperature=temperature,
+        timeout=25.0,
     )
 
     content = response.choices[0].message.content
@@ -176,7 +185,7 @@ def _call_openai_compatible(
         "temperature": temperature,
     }
 
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=30.0) as client:
         response = client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -231,7 +240,7 @@ def _call_gemini(
         },
     }
 
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=30.0) as client:
         response = client.post(url, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -249,6 +258,28 @@ def _call_gemini(
 # ──────────────────────────────────────────────────────────────────────
 #  Public API
 # ──────────────────────────────────────────────────────────────────────
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """Check whether an exception (or its cause chain) is an API timeout.
+
+    Uses ``__name__`` checks so optional SDKs (``openai``, ``httpx``)
+    don't need to be imported at module level.
+    """
+    exc_name = type(exc).__name__
+    if exc_name in (
+        "APITimeoutError",          # openai SDK
+        "TimeoutException",         # httpx (all variants)
+        "ReadTimeout",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "WriteTimeout",
+    ):
+        return True
+    # Walk the cause chain (e.g. APITimeoutError wraps httpx.TimeoutException)
+    if exc.__cause__ is not None:
+        return _is_timeout_error(exc.__cause__)
+    return False
+
 
 def generate_report(
     summary_raw_json: Dict[str, Any],
@@ -278,6 +309,11 @@ def generate_report(
     -------
     str
         Markdown report ready for client delivery.
+
+    Raises
+    ------
+    LLMTimeoutError
+        If the external API call exceeds the configured timeout.
     """
     provider_info = detect_provider()
 
@@ -329,7 +365,13 @@ def generate_report(
             )
         print(f"[NarrateKPI] ✅ Report generated successfully.")
         return content
+    except LLMTimeoutError:
+        # Already a timeout — re-raise for API handlers to return 504.
+        raise
     except Exception as e:
+        if _is_timeout_error(e):
+            # Wrap unrecognised timeout flavours and re-raise.
+            raise LLMTimeoutError(f"LLM API timed out: {e}") from e
         print(
             f"[NarrateKPI] ⚠️  LLM API call failed ({e}). "
             f"Falling back to dry-run mock report to keep pipeline running.",

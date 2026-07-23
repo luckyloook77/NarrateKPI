@@ -34,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from email_service import send_report_email
-from llm_engine import generate_report
+from llm_engine import generate_report, LLMTimeoutError
 from math_engine import run_math_engine
 from mock_data import ALL_CASES
 from schemas import MetricSet, WeeklyComparisonInput
@@ -247,7 +247,7 @@ async def app_spa() -> str:
 
 
 @app.post("/api/reports/generate-all", response_model=GenerateAllResponse)
-async def generate_all() -> GenerateAllResponse:
+def generate_all() -> GenerateAllResponse:
     """Run the Math Engine + LLM Synthesis for every mock client.
 
     Clears any existing reports and regenerates from scratch.
@@ -283,6 +283,12 @@ async def generate_all() -> GenerateAllResponse:
         return GenerateAllResponse(
             generated=len(created),
             reports=[_to_summary(r) for r in created],
+        )
+    except LLMTimeoutError as e:
+        print(f"[NarrateKPI] ⏱️ LLM timeout in generate_all(): {e}", flush=True)
+        raise HTTPException(
+            status_code=504,
+            detail=f"LLM API timed out — could not generate reports: {e}",
         )
     except Exception as e:
         print(f"[NarrateKPI] ❌ generate_all() failed:\n{traceback.format_exc()}", flush=True)
@@ -381,7 +387,7 @@ async def approve_report(report_id: str) -> ReportDetail:
 # ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/clients/custom-report", response_model=ReportDetail)
-async def create_custom_report(body: CustomReportRequest) -> ReportDetail:
+def create_custom_report(body: CustomReportRequest) -> ReportDetail:
     """Accept custom client metrics, run the full pipeline, and create a
     ``DRAFT`` report record.
 
@@ -438,13 +444,19 @@ async def create_custom_report(body: CustomReportRequest) -> ReportDetail:
         )
         save(record)
         return _to_detail(record)
+    except LLMTimeoutError as e:
+        print(f"[NarrateKPI] ⏱️ LLM timeout in create_custom_report(): {e}", flush=True)
+        raise HTTPException(
+            status_code=504,
+            detail=f"LLM API timed out — could not generate report: {e}",
+        )
     except Exception as e:
         print(f"[NarrateKPI] ❌ create_custom_report() failed:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"create_custom_report: {e}")
 
 
 @app.post("/api/reports/{report_id}/send", response_model=SendReportResponse)
-async def send_report(report_id: str) -> SendReportResponse:
+def send_report(report_id: str) -> SendReportResponse:
     """Send an approved report via email.
 
     Converts the report Markdown to email-safe HTML and dispatches it via
