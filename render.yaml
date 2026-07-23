@@ -18,12 +18,12 @@ services:
         value: "1"
       - key: PYTHONDONTWRITEBYTECODE
         value: "1"
-      # NARRATEKPI_STORE_PATH is deliberately NOT set here — the app
-      # defaults to reports_store.json in the project root, which is
-      # always writable.  Uncomment and set a custom path ONLY if you
-      # have verified the directory exists and is writable.
-      # - key: NARRATEKPI_STORE_PATH
-      #   value: "/opt/render/project/src/reports_store.json"
+      # ── Database ─────────────────────────────────────────────────
+      # Set DATABASE_URL to a PostgreSQL connection string for production.
+      # If unset, the app falls back to SQLite (not recommended on Render
+      # free tier as data is ephemeral).
+      - key: DATABASE_URL
+        sync: false
       # ── LLM — NVIDIA (highest priority) ─────────────────────────
       # - key: NVIDIA_API_KEY
       #   sync: false

@@ -23,30 +23,31 @@ import traceback
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 # Ensure sibling modules are importable when run directly.
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import database
+from database import (
+    Client,
+    Report,
+    ReportStatus,
+    _now_iso,
+    get_db,
+    init_db,
+)
 from email_service import send_report_email
 from llm_engine import generate_report, LLMTimeoutError
 from math_engine import run_math_engine
 from mock_data import ALL_CASES
 from schemas import MetricSet, WeeklyComparisonInput
-from storage import (
-    ReportRecord,
-    ReportStatus,
-    _now_iso,
-    clear_all,
-    load_all,
-    load_by_id,
-    save,
-)
 
 # ──────────────────────────────────────────────────────────────────────
 #  App setup
@@ -82,6 +83,16 @@ _RUNTIME_DIRS = [
 for _dir in _RUNTIME_DIRS:
     _dir.mkdir(parents=True, exist_ok=True)
 print(f"[NarrateKPI] 📁 Ensured {len(_RUNTIME_DIRS)} runtime directories exist")
+
+
+# ── Initialise database ─────────────────────────────────────────────
+_db_session = init_db()
+print(f"[NarrateKPI] 🗄️  Database: {database.DATABASE_URL}")
+
+
+@app.on_event("shutdown")
+def _close_db() -> None:
+    _db_session.close()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -171,7 +182,6 @@ async def health_check() -> dict:
     the status of optional LLM / Email providers so operators can
     quickly assess the instance's capabilities.
     """
-    from storage import STORE_PATH
     import email_service as es
     import llm_engine as llm
 
@@ -185,10 +195,14 @@ async def health_check() -> dict:
             "writable": os.access(str(_dir), os.W_OK) if _dir.is_dir() else False,
         }
 
-    # Check store writability
-    store_path = STORE_PATH
-    store_parent = Path(store_path).parent
-    store_writable = store_parent.is_dir() and os.access(str(store_parent), os.W_OK)
+    # Check database connectivity
+    db_ok = False
+    try:
+        with database.SessionLocal() as _test_db:
+            _test_db.execute(database.text("SELECT 1"))
+            db_ok = True
+    except Exception:
+        db_ok = False
 
     # Detect LLM provider
     provider = llm.detect_provider()
@@ -210,9 +224,9 @@ async def health_check() -> dict:
         "version": "3.0.0",
         "uptime_seconds": round(uptime, 1),
         "uptime_human": _format_uptime(uptime),
-        "store": {
-            "path": store_path,
-            "writable": store_writable,
+        "database": {
+            "url": _mask_db_url(database.DATABASE_URL),
+            "reachable": db_ok,
         },
         "directories": dirs_status,
         "providers": {
@@ -247,14 +261,15 @@ async def app_spa() -> str:
 
 
 @app.post("/api/reports/generate-all", response_model=GenerateAllResponse)
-def generate_all() -> GenerateAllResponse:
+def generate_all(db: Session = Depends(get_db)) -> GenerateAllResponse:
     """Run the Math Engine + LLM Synthesis for every mock client.
 
     Clears any existing reports and regenerates from scratch.
     """
     try:
-        clear_all()
-        created: List[ReportRecord] = []
+        db.query(Report).delete()
+        db.commit()
+        created: List[Report] = []
 
         for case in ALL_CASES:
             # ── Step 1: Math Engine ────────────────────────────────
@@ -265,48 +280,58 @@ def generate_all() -> GenerateAllResponse:
             markdown = generate_report(summary)
 
             # ── Step 3: Persist ────────────────────────────────────
-            record = ReportRecord(
+            now = _now_iso()
+            report = Report(
+                report_id=uuid.uuid4().hex[:12],
                 account_id=summary.get("account_id", case.account_id),
                 client_name=summary.get("client_name", case.client_name),
                 period=summary.get("period_current", ""),
-                status=ReportStatus.DRAFT,
+                status=ReportStatus.DRAFT.value,
                 raw_metrics={
                     "current": summary.get("current_metrics", {}),
                     "previous": summary.get("previous_metrics", {}),
                 },
                 anomalies_found=summary.get("total_anomalies_found", 0),
                 markdown_content=markdown,
+                created_at=now,
+                updated_at=now,
             )
-            save(record)
-            created.append(record)
+            db.add(report)
+            created.append(report)
+
+        db.commit()
+        # Refresh to get generated IDs
+        for r in created:
+            db.refresh(r)
 
         return GenerateAllResponse(
             generated=len(created),
             reports=[_to_summary(r) for r in created],
         )
     except LLMTimeoutError as e:
+        db.rollback()
         print(f"[NarrateKPI] ⏱️ LLM timeout in generate_all(): {e}", flush=True)
         raise HTTPException(
             status_code=504,
             detail=f"LLM API timed out — could not generate reports: {e}",
         )
     except Exception as e:
+        db.rollback()
         print(f"[NarrateKPI] ❌ generate_all() failed:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"generate_all: {e}")
 
 
 @app.get("/api/reports", response_model=List[ReportSummary])
 async def list_reports(
+    db: Session = Depends(get_db),
     status: Optional[str] = Query(None, description="Filter by status (DRAFT, IN_REVIEW, APPROVED, SENT)"),
 ) -> List[ReportSummary]:
     """List all reports, optionally filtered by status."""
     try:
-        records = load_all()
+        query = db.query(Report)
         if status:
-            status_upper = status.upper()
-            records = [r for r in records if r.status.value == status_upper]
-        # Most recent first.
-        records.sort(key=lambda r: r.updated_at, reverse=True)
+            query = query.filter(Report.status == status.upper())
+        records = query.order_by(Report.updated_at.desc()).all()
         return [_to_summary(r) for r in records]
     except Exception as e:
         print(f"[NarrateKPI] ❌ list_reports() failed:\n{traceback.format_exc()}", flush=True)
@@ -314,10 +339,10 @@ async def list_reports(
 
 
 @app.get("/api/reports/{report_id}", response_model=ReportDetail)
-async def get_report(report_id: str) -> ReportDetail:
+async def get_report(report_id: str, db: Session = Depends(get_db)) -> ReportDetail:
     """Get a single report with full Markdown content and raw metrics."""
     try:
-        record = load_by_id(report_id)
+        record = db.query(Report).filter(Report.report_id == report_id).first()
         if record is None:
             raise HTTPException(status_code=404, detail="Report not found")
         return _to_detail(record)
@@ -329,55 +354,63 @@ async def get_report(report_id: str) -> ReportDetail:
 
 
 @app.put("/api/reports/{report_id}", response_model=ReportDetail)
-async def update_report(report_id: str, body: UpdateReportRequest) -> ReportDetail:
+async def update_report(report_id: str, body: UpdateReportRequest, db: Session = Depends(get_db)) -> ReportDetail:
     """Update the Markdown content of a report.
 
     Automatically transitions status to ``IN_REVIEW`` if it is currently
     ``DRAFT`` or ``IN_REVIEW``.
     """
     try:
-        record = load_by_id(report_id)
+        record = db.query(Report).filter(Report.report_id == report_id).first()
         if record is None:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        # Only DRAFT and IN_REVIEW reports can be edited; approved/sent are locked.
-        if record.status not in (ReportStatus.DRAFT, ReportStatus.IN_REVIEW):
+        status_val = ReportStatus(record.status)
+        if status_val not in (ReportStatus.DRAFT, ReportStatus.IN_REVIEW):
             raise HTTPException(
                 status_code=409,
-                detail=f"Cannot edit a report with status '{record.status.value}'. Only DRAFT and IN_REVIEW reports can be modified.",
+                detail=f"Cannot edit a report with status '{record.status}'. Only DRAFT and IN_REVIEW reports can be modified.",
             )
         record.markdown_content = body.markdown_content
-        record.status = ReportStatus.IN_REVIEW
-        save(record)
+        record.status = ReportStatus.IN_REVIEW.value
+        record.updated_at = _now_iso()
+        db.commit()
+        db.refresh(record)
         return _to_detail(record)
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
+        db.rollback()
         print(f"[NarrateKPI] ❌ update_report() failed:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"update_report: {e}")
 
 
 @app.post("/api/reports/{report_id}/approve", response_model=ReportDetail)
-async def approve_report(report_id: str) -> ReportDetail:
+async def approve_report(report_id: str, db: Session = Depends(get_db)) -> ReportDetail:
     """Approve a report, transitioning it to ``APPROVED``.
 
     Only ``DRAFT`` or ``IN_REVIEW`` reports can be approved.
     """
     try:
-        record = load_by_id(report_id)
+        record = db.query(Report).filter(Report.report_id == report_id).first()
         if record is None:
             raise HTTPException(status_code=404, detail="Report not found")
-        if record.status in (ReportStatus.APPROVED, ReportStatus.SENT):
+        if record.status in (ReportStatus.APPROVED.value, ReportStatus.SENT.value):
             raise HTTPException(
                 status_code=409,
-                detail=f"Cannot approve a report with status '{record.status.value}'",
+                detail=f"Cannot approve a report with status '{record.status}'",
             )
-        record.status = ReportStatus.APPROVED
-        save(record)
+        record.status = ReportStatus.APPROVED.value
+        record.updated_at = _now_iso()
+        db.commit()
+        db.refresh(record)
         return _to_detail(record)
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
+        db.rollback()
         print(f"[NarrateKPI] ❌ approve_report() failed:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"approve_report: {e}")
 
@@ -387,7 +420,7 @@ async def approve_report(report_id: str) -> ReportDetail:
 # ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/clients/custom-report", response_model=ReportDetail)
-def create_custom_report(body: CustomReportRequest) -> ReportDetail:
+def create_custom_report(body: CustomReportRequest, db: Session = Depends(get_db)) -> ReportDetail:
     """Accept custom client metrics, run the full pipeline, and create a
     ``DRAFT`` report record.
 
@@ -429,11 +462,13 @@ def create_custom_report(body: CustomReportRequest) -> ReportDetail:
         markdown = generate_report(summary)
 
         # ── Step 3: Persist ────────────────────────────────────────
-        record = ReportRecord(
+        now = _now_iso()
+        report = Report(
+            report_id=comparison.account_id,
             account_id=comparison.account_id,
             client_name=body.client_name,
             period=body.period,
-            status=ReportStatus.DRAFT,
+            status=ReportStatus.DRAFT.value,
             raw_metrics={
                 "current": summary.get("current_metrics", {}),
                 "previous": summary.get("previous_metrics", {}),
@@ -441,22 +476,28 @@ def create_custom_report(body: CustomReportRequest) -> ReportDetail:
             anomalies_found=summary.get("total_anomalies_found", 0),
             markdown_content=markdown,
             target_email=body.target_email,
+            created_at=now,
+            updated_at=now,
         )
-        save(record)
-        return _to_detail(record)
+        db.add(report)
+        db.commit()
+        db.refresh(report)
+        return _to_detail(report)
     except LLMTimeoutError as e:
+        db.rollback()
         print(f"[NarrateKPI] ⏱️ LLM timeout in create_custom_report(): {e}", flush=True)
         raise HTTPException(
             status_code=504,
             detail=f"LLM API timed out — could not generate report: {e}",
         )
     except Exception as e:
+        db.rollback()
         print(f"[NarrateKPI] ❌ create_custom_report() failed:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"create_custom_report: {e}")
 
 
 @app.post("/api/reports/{report_id}/send", response_model=SendReportResponse)
-def send_report(report_id: str) -> SendReportResponse:
+def send_report(report_id: str, db: Session = Depends(get_db)) -> SendReportResponse:
     """Send an approved report via email.
 
     Converts the report Markdown to email-safe HTML and dispatches it via
@@ -464,14 +505,14 @@ def send_report(report_id: str) -> SendReportResponse:
     Only ``APPROVED`` reports can be sent.
     """
     try:
-        record = load_by_id(report_id)
+        record = db.query(Report).filter(Report.report_id == report_id).first()
         if record is None:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        if record.status != ReportStatus.APPROVED:
+        if record.status != ReportStatus.APPROVED.value:
             raise HTTPException(
                 status_code=409,
-                detail=f"Cannot send a report with status '{record.status.value}'. Only APPROVED reports can be sent.",
+                detail=f"Cannot send a report with status '{record.status}'. Only APPROVED reports can be sent.",
             )
 
         target = record.target_email or "client@example.com"
@@ -483,19 +524,23 @@ def send_report(report_id: str) -> SendReportResponse:
         )
 
         now = _now_iso()
-        record.status = ReportStatus.SENT
+        record.status = ReportStatus.SENT.value
         record.sent_at = now
-        save(record)
+        record.updated_at = now
+        db.commit()
+        db.refresh(record)
 
         return SendReportResponse(
             id=record.report_id,
-            status=record.status.value,
+            status=record.status,
             sent_at=now,
             sent_to=target,
         )
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
+        db.rollback()
         print(f"[NarrateKPI] ❌ send_report() failed:\n{traceback.format_exc()}", flush=True)
         raise HTTPException(status_code=500, detail=f"send_report: {e}")
 
@@ -513,6 +558,29 @@ if _static_dir.is_dir():
 # ──────────────────────────────────────────────────────────────────────
 
 import uuid  # noqa: E402 (import after endpoints for readability)
+
+
+def _mask_db_url(url: str) -> str:
+    """Mask credentials in a database URL for safe logging.
+
+    ``postgresql://user:secret@host/db`` → ``postgresql://user:***@host/db``
+    """
+    if "@" not in url:
+        # SQLite or other URL without credentials
+        return url
+    scheme_rest = url.split("://", 1)
+    if len(scheme_rest) < 2:
+        return url
+    host_part = scheme_rest[1]
+    if "@" in host_part:
+        creds, host = host_part.rsplit("@", 1)
+        if ":" in creds:
+            user, _ = creds.split(":", 1)
+            masked = f"{user}:***@{host}"
+        else:
+            masked = f"{creds}:***@{host}"
+        return f"{scheme_rest[0]}://{masked}"
+    return url
 
 
 def _format_uptime(seconds: float) -> str:
@@ -558,26 +626,28 @@ def _derive_previous_period(current: str) -> str:
 #  Helpers
 # ──────────────────────────────────────────────────────────────────────
 
-def _to_summary(record: ReportRecord) -> ReportSummary:
+def _to_summary(record: Report) -> ReportSummary:
+    """Convert a SQLAlchemy ``Report`` ORM instance to a ``ReportSummary``."""
     return ReportSummary(
         id=record.report_id,
         account_id=record.account_id,
         client_name=record.client_name,
         period=record.period,
-        status=record.status.value,
+        status=record.status,
         anomalies_found=record.anomalies_found,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
 
 
-def _to_detail(record: ReportRecord) -> ReportDetail:
+def _to_detail(record: Report) -> ReportDetail:
+    """Convert a SQLAlchemy ``Report`` ORM instance to a ``ReportDetail``."""
     return ReportDetail(
         id=record.report_id,
         account_id=record.account_id,
         client_name=record.client_name,
         period=record.period,
-        status=record.status.value,
+        status=record.status,
         raw_metrics=record.raw_metrics,
         anomalies_found=record.anomalies_found,
         markdown_content=record.markdown_content,

@@ -17,7 +17,13 @@ services:
       # Mount entire project for hot-reload during development.
       - .:/app
     environment:
-      # ── App settings — store in /data (volume-mounted) ───────────
+      # ── Database ─────────────────────────────────────────────────
+      # Uncomment and set to a PostgreSQL connection string for production.
+      # If unset, the app falls back to SQLite (./narratekpi.db inside the
+      # container, persists only while the container lives).
+      # - DATABASE_URL=postgres://user:pass@host:5432/narratekpi
+      #
+      # ── App settings — directory-based storage ───────────────────
       - NARRATEKPI_STORE_PATH=/data/reports_store.json
       # ── Optional: LLM API keys (leave unset for dry-run mode) ────
       # - OPENAI_API_KEY=sk-...
