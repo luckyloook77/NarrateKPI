@@ -1,0 +1,63 @@
+# ── NarrateKPI — .dockerignore ──────────────────────────────────────
+# Excluded files & directories are NOT copied into the Docker image,
+# keeping the build context small and the build fast.
+
+# ── Version control ─────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Python & Cache ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# ── Environment & Secrets ───────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+
+# ── Local data & runtime artifacts ──────────────────────────────────
+data/
+email_output/
+reports_output/
+reports_store.json
+*.db
+*.sqlite
+
+# ── IDE & Editor ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Freebuff / Agent artifacts ─────────────────────────────────────
+.freebuff/
+nul
+
+# ── Docker themselves (avoid copying docker files inside) ───────────
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# ── Documentation & config (not needed at runtime) ──────────────────
+README.md
+render.yaml
+task_plan.md
+findings.md
+progress.md
+*.md
+
+# ── Tests & local dev ───────────────────────────────────────────────
+test_*.py
+*_test.py
+*.test.py
