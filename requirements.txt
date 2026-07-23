@@ -26,3 +26,6 @@ resend>=0.8.0,<1.0.0
 # Database: SQLAlchemy ORM (v2) + PostgreSQL driver
 sqlalchemy>=2.0.30,<3.0.0
 psycopg2-binary>=2.9.9,<3.0.0
+
+# Scheduler: background cron-like job scheduling
+apscheduler>=3.10.0,<4.0.0

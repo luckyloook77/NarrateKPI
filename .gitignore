@@ -20,6 +20,8 @@ env/
 data/*
 !data/.gitkeep
 reports_store.json
+*.bak
+narratekpi.db
 email_output/*
 !email_output/.gitkeep
 reports_output/*

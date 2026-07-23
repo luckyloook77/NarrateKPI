@@ -20,6 +20,7 @@ import os
 import sys
 import time
 import traceback
+import uuid
 from pathlib import Path
 from typing import List, Optional
 
@@ -48,6 +49,7 @@ from llm_engine import generate_report, LLMTimeoutError
 from math_engine import run_math_engine
 from mock_data import ALL_CASES
 from schemas import MetricSet, WeeklyComparisonInput
+import scheduler
 
 # ──────────────────────────────────────────────────────────────────────
 #  App setup
@@ -90,9 +92,15 @@ _db_session = init_db()
 print(f"[NarrateKPI] 🗄️  Database: {database.DATABASE_URL}")
 
 
+# ── Start scheduler ──────────────────────────────────────────────────
+scheduler.start_scheduler()
+
+
 @app.on_event("shutdown")
-def _close_db() -> None:
+def _shutdown() -> None:
+    """Graceful shutdown: close DB session and stop the scheduler."""
     _db_session.close()
+    scheduler.stop_scheduler()
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -172,6 +180,38 @@ class SendReportResponse(BaseModel):
 # ──────────────────────────────────────────────────────────────────────
 #  Routes
 # ──────────────────────────────────────────────────────────────────────
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Scheduler endpoints
+# ──────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/scheduler/status")
+async def scheduler_status() -> dict:
+    """Return current scheduler state: running, next run, active jobs."""
+    return scheduler.get_scheduler_status()
+
+
+@app.post("/api/scheduler/trigger-now")
+def trigger_scheduler() -> dict:
+    """Manually trigger the weekly report generation job immediately.
+
+    Useful for testing and manual overrides.  The job runs synchronously
+    in a background thread and returns a summary of results.
+    """
+    try:
+        results = scheduler.scheduled_generate_all_reports()
+        return {"status": "completed", "results": results}
+    except Exception as e:
+        print(
+            f"[NarrateKPI] ❌ trigger-now failed:\n{traceback.format_exc()}",
+            flush=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"scheduler trigger-now failed: {e}",
+        )
 
 
 @app.get("/api/health")
@@ -272,6 +312,19 @@ def generate_all(db: Session = Depends(get_db)) -> GenerateAllResponse:
         created: List[Report] = []
 
         for case in ALL_CASES:
+            account_id = case.account_id
+            client_name = case.client_name
+
+            # ── Step 0: Ensure Client record exists (for scheduler) ─
+            client = db.query(Client).filter(Client.account_id == account_id).first()
+            if client is None:
+                client = Client(
+                    account_id=account_id,
+                    client_name=client_name,
+                )
+                db.add(client)
+                db.flush()
+
             # ── Step 1: Math Engine ────────────────────────────────
             anomaly_report = run_math_engine(case)
             summary = anomaly_report.summary_raw_json
@@ -283,8 +336,9 @@ def generate_all(db: Session = Depends(get_db)) -> GenerateAllResponse:
             now = _now_iso()
             report = Report(
                 report_id=uuid.uuid4().hex[:12],
-                account_id=summary.get("account_id", case.account_id),
-                client_name=summary.get("client_name", case.client_name),
+                client_id=client.id,
+                account_id=account_id,
+                client_name=client_name,
                 period=summary.get("period_current", ""),
                 status=ReportStatus.DRAFT.value,
                 raw_metrics={
@@ -556,8 +610,6 @@ if _static_dir.is_dir():
 # ──────────────────────────────────────────────────────────────────────
 #  Helpers
 # ──────────────────────────────────────────────────────────────────────
-
-import uuid  # noqa: E402 (import after endpoints for readability)
 
 
 def _mask_db_url(url: str) -> str:

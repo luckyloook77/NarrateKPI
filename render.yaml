@@ -18,6 +18,9 @@ services:
         value: "1"
       - key: PYTHONDONTWRITEBYTECODE
         value: "1"
+      # ── Scheduler ────────────────────────────────────────────────
+      - key: SCHEDULER_TIMEZONE
+        value: "Europe/Kyiv"
       # ── Database ─────────────────────────────────────────────────
       # Set DATABASE_URL to a PostgreSQL connection string for production.
       # If unset, the app falls back to SQLite (not recommended on Render
