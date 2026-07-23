@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Ensure sibling modules are importable when run directly.
-HERE = Path(__file__).parent
+HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from email_service import send_report_email

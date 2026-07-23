@@ -18,8 +18,12 @@ services:
         value: "1"
       - key: PYTHONDONTWRITEBYTECODE
         value: "1"
-      - key: NARRATEKPI_STORE_PATH
-        value: "/var/data/reports_store.json"
+      # NARRATEKPI_STORE_PATH is deliberately NOT set here — the app
+      # defaults to reports_store.json in the project root, which is
+      # always writable.  Uncomment and set a custom path ONLY if you
+      # have verified the directory exists and is writable.
+      # - key: NARRATEKPI_STORE_PATH
+      #   value: "/opt/render/project/src/reports_store.json"
       # ── LLM (optional — unset = dry-run mock mode) ──────────────
       # - key: OPENAI_API_KEY
       #   sync: false

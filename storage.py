@@ -117,10 +117,31 @@ def _now_iso() -> str:
 #  JSON File Store
 # ──────────────────────────────────────────────────────────────────────
 
-STORE_PATH = os.environ.get(
-    "NARRATEKPI_STORE_PATH",
-    str(Path(__file__).parent / "reports_store.json"),
-)
+_BASE_DIR = Path(__file__).resolve().parent
+
+_DEFAULT_STORE = _BASE_DIR / "reports_store.json"
+
+# Use NARRATEKPI_STORE_PATH env var if set; otherwise default to
+# reports_store.json in the project root (always writable).
+_raw = os.environ.get("NARRATEKPI_STORE_PATH", None)
+if _raw:
+    _candidate = Path(_raw)
+    if _candidate.is_absolute():
+        # Absolute path — verify the parent dir is writable at startup.
+        try:
+            _candidate.parent.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError):
+            print(
+                f"[NarrateKPI] ⚠️  STORE_PATH '{_raw}' parent dir not writable. "
+                f"Falling back to '{_DEFAULT_STORE}'.",
+                flush=True,
+            )
+            _candidate = _DEFAULT_STORE
+    else:
+        _candidate = _BASE_DIR / _raw
+    STORE_PATH = str(_candidate)
+else:
+    STORE_PATH = str(_DEFAULT_STORE)
 
 _lock = threading.Lock()
 
@@ -141,7 +162,17 @@ def _read_store() -> List[Dict[str, Any]]:
 def _write_store(records: List[Dict[str, Any]]) -> None:
     """Overwrite the JSON file with the full record list."""
     path = Path(STORE_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as exc:
+        print(
+            f"[NarrateKPI] ❌ Cannot create store directory '{path.parent}': {exc}. "
+            f"Falling back to '{_DEFAULT_STORE}' for this write.",
+            flush=True,
+        )
+        # Write to the fallback path for this call only (don't mutate the global).
+        path = _DEFAULT_STORE
+        path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2, ensure_ascii=False)
 

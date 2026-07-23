@@ -17,7 +17,7 @@ services:
       # Mount entire project for hot-reload during development.
       - .:/app
     environment:
-      # ── App settings ─────────────────────────────────────────────
+      # ── App settings — store in /data (volume-mounted) ───────────
       - NARRATEKPI_STORE_PATH=/data/reports_store.json
       # ── Optional: LLM API keys (leave unset for dry-run mode) ────
       # - OPENAI_API_KEY=sk-...
